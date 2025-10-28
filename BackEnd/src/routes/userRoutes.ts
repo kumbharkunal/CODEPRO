@@ -2,6 +2,7 @@ import express from 'express';
 import { createUser, getAllUsers, getUserById } from '../controllers/userController';
 import { validate } from '../middlewares/validate';
 import { createUserSchema } from '../utils/validators';
+import { authenticate, authorize } from '../middlewares/auth';
 
 const router = express.Router();
 
@@ -9,9 +10,9 @@ const router = express.Router();
 router.post('/', validate(createUserSchema), createUser);
 
 // GET /api/users - Get all users
-router.get('/', getAllUsers);
+router.get('/', authenticate, authorize('admin'), getAllUsers);
 
 // GET /api/users/:id - Get user by ID
-router.get('/:id', getUserById);
+router.get('/:id', authenticate, getUserById);
 
 export default router;

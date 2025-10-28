@@ -8,11 +8,13 @@ import {
   getUserReviews,
   getReviewStats,
 } from '../controllers/reviewController';
+import { createReviewLimiter } from '../config/rateLimiter';
+import { authenticate } from '../middlewares/auth';
 
 const router = express.Router();
 
 // POST /api/reviews - Create new review
-router.post('/', createReview);
+router.post('/', authenticate, createReviewLimiter, createReview);
 
 // GET /api/reviews - Get all reviews
 router.get('/', getAllReviews);
