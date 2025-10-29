@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import Review from '../models/Review';
+import { getIO } from '../config/socket';
 
 // Create review
 export const createReview = async (req: Request, res: Response) => {
@@ -42,7 +43,7 @@ export const getAllReviews = async (req: Request, res: Response) => {
       .populate('repositoryId', 'name fullName')
       .populate('reviewedBy', 'name email')
       .sort({ createdAt: -1 });
-    
+
     res.status(200).json(reviews);
   } catch (error) {
     console.error('Error fetching reviews:', error);
@@ -57,7 +58,7 @@ export const getRepositoryReviews = async (req: Request, res: Response) => {
     const reviews = await Review.find({ repositoryId })
       .populate('reviewedBy', 'name email')
       .sort({ createdAt: -1 });
-    
+
     res.status(200).json(reviews);
   } catch (error) {
     console.error('Error fetching repository reviews:', error);
@@ -72,11 +73,11 @@ export const getReviewById = async (req: Request, res: Response) => {
     const review = await Review.findById(id)
       .populate('repositoryId', 'name fullName owner')
       .populate('reviewedBy', 'name email');
-    
+
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
     }
-    
+
     res.status(200).json(review);
   } catch (error) {
     console.error('Error fetching review:', error);
@@ -90,11 +91,14 @@ export const updateReview = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { status, filesAnalyzed, issuesFound, findings, summary, qualityScore } = req.body;
 
-    const review = await Review.findById(id);
-    
+    const review = await Review.findById(id).populate('reviewedBy', 'name email');
+
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
     }
+
+    // Store old status for comparison
+    const oldStatus = review.status;
 
     // Update fields if provided
     if (status) review.status = status;
@@ -105,6 +109,39 @@ export const updateReview = async (req: Request, res: Response) => {
     if (qualityScore !== undefined) review.qualityScore = qualityScore;
 
     await review.save();
+
+    // Send WebSocket notification if status changed
+    if (status && status !== oldStatus) {
+      try {
+        const io = getIO();
+        const userId = review.reviewedBy;
+
+        // Send to user's room
+        io.to(`user_${userId}`).emit('review-updated', {
+          reviewId: review._id,
+          status: review.status,
+          message: `Review status changed to ${status}`,
+          timestamp: new Date().toISOString(),
+        });
+
+        // If completed, send detailed notification
+        if (status === 'completed') {
+          io.to(`user_${userId}`).emit('review-completed', {
+            reviewId: review._id,
+            pullRequestTitle: review.pullRequestTitle,
+            issuesFound: review.issuesFound,
+            qualityScore: review.qualityScore,
+            summary: review.summary,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        console.log(`WebSocket notification sent to user_${userId}`);
+      } catch (socketError) {
+        console.error('Error sending WebSocket notification:', socketError);
+        // Don't fail the request if WebSocket fails
+      }
+    }
 
     res.status(200).json({
       message: 'Review updated successfully',
@@ -123,7 +160,7 @@ export const getUserReviews = async (req: Request, res: Response) => {
     const reviews = await Review.find({ reviewedBy: userId })
       .populate('repositoryId', 'name fullName')
       .sort({ createdAt: -1 });
-    
+
     res.status(200).json(reviews);
   } catch (error) {
     console.error('Error fetching user reviews:', error);
@@ -138,13 +175,13 @@ export const getReviewStats = async (req: Request, res: Response) => {
     const completedReviews = await Review.countDocuments({ status: 'completed' });
     const pendingReviews = await Review.countDocuments({ status: 'pending' });
     const inProgressReviews = await Review.countDocuments({ status: 'in_progress' });
-    
+
     // Get average quality score
     const reviewsWithScores = await Review.find({ qualityScore: { $exists: true } });
     const avgQualityScore = reviewsWithScores.length > 0
       ? reviewsWithScores.reduce((sum, review) => sum + (review.qualityScore || 0), 0) / reviewsWithScores.length
       : 0;
-    
+
     // Get total issues found
     const allReviews = await Review.find();
     const totalIssues = allReviews.reduce((sum, review) => sum + review.issuesFound, 0);

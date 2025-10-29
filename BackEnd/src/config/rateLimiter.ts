@@ -16,7 +16,7 @@ export const authLimiter = rateLimit({
   message: 'Too many login attempts from this IP, please try again after 15 minutes',
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true, // Don't count successful requests
+  // skipSuccessfulRequests: true, // Don't count successful requests
 });
 
 // Create review rate limiter (expensive AI operation)
