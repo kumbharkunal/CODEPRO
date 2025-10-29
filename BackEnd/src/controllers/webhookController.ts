@@ -3,6 +3,8 @@ import { verifyGitHubSignature } from '../utils/webhookVerification';
 import Review from '../models/Review';
 import Repository from '../models/Repository';
 import { getIO } from '../config/socket';
+import { getPullRequestFiles, getFileContent } from '../config/github';
+import { triggerAIReview } from '../controllers/reviewController';
 
 export const handleGitHubWebhook = async (req: Request, res: Response) => {
     try {
@@ -69,7 +71,7 @@ const handlePullRequestEvent = async (payload: any) => {
         // Find repository in database
         const dbRepository = await Repository.findOne({
             githubRepoId: repository.id
-        });
+        }).populate('connectedBy');
 
         if (!dbRepository) {
             console.log(`Repository not found in database: ${repository.full_name}`);
@@ -94,7 +96,7 @@ const handlePullRequestEvent = async (payload: any) => {
         // Send WebSocket notification
         try {
             const io = getIO();
-            const userId = dbRepository.connectedBy.toString();
+            const userId = dbRepository.connectedBy
 
             io.to(`user_${userId}`).emit('review-created', {
                 reviewId: newReview._id,
@@ -109,10 +111,116 @@ const handlePullRequestEvent = async (payload: any) => {
             console.error('Error sending WebSocket notification:', socketError);
         }
 
-        // TODO: Trigger AI review process (will implement with Gemini)
-        // For now, review stays in 'pending' status
+        // Fetch PR files and trigger AI review (async, don't wait)
+        processPullRequestReview(
+            newReview.id,
+            repository.owner.login,
+            repository.name,
+            pullRequest.number,
+            pullRequest.head.sha,
+            pullRequest.title + '\n\n' + (pullRequest.body || ''),
+            process.env.GITHUB_TOKEN as string
+        ).catch(error => {
+            console.error('Error processing PR review:', error);
+        });
 
     } catch (error) {
         console.error('Error handling pull request event:', error);
+    }
+};
+
+// Process PR review (fetch files and analyze)
+const processPullRequestReview = async (
+    reviewId: string,
+    owner: string,
+    repo: string,
+    pullNumber: number,
+    commitSha: string,
+    prContext: string,
+    githubToken: string
+) => {
+    try {
+        console.log(`Processing review ${reviewId}...`);
+
+        // Fetch PR files
+        const prFiles = await getPullRequestFiles(owner, repo, pullNumber, githubToken);
+        console.log(`Found ${prFiles.length} code files to analyze`);
+
+        if (prFiles.length === 0) {
+            // No code files to review
+            const review = await Review.findById(reviewId);
+            if (review) {
+                review.status = 'completed';
+                review.summary = 'No code files to review';
+                review.filesAnalyzed = 0;
+                review.issuesFound = 0;
+                review.qualityScore = 100;
+                await review.save();
+            }
+            return;
+        }
+
+        // Fetch content of each file
+        const filesWithContent: { name: string; content: string }[] = [];
+
+        for (const file of prFiles.slice(0, 10)) { // Limit to 10 files for now
+            try {
+                const content = await getFileContent(
+                    owner,
+                    repo,
+                    file.filename,
+                    commitSha,
+                    githubToken
+                );
+
+                if (content) {
+                    filesWithContent.push({
+                        name: file.filename,
+                        content: content,
+                    });
+                }
+
+                // Delay to respect rate limits
+                await new Promise(resolve => setTimeout(resolve, 500));
+            } catch (error) {
+                console.error(`Error fetching file ${file.filename}:`, error);
+            }
+        }
+
+        console.log(`Fetched content for ${filesWithContent.length} files`);
+
+        // Trigger AI review
+        if (filesWithContent.length > 0) {
+            await triggerAIReview(reviewId, filesWithContent, prContext);
+
+            // Post review comment to GitHub
+            try {
+                const review = await Review.findById(reviewId);
+                if (review && review.status === 'completed') {
+                    const { postReviewComment, formatReviewAsMarkdown } = require('../config/github');
+                    const markdown = formatReviewAsMarkdown(review);
+
+                    await postReviewComment(owner, repo, pullNumber, markdown, githubToken);
+                    console.log(`Posted AI review to GitHub PR #${pullNumber}`);
+                }
+            } catch (commentError) {
+                console.error('Error posting review comment:', commentError);
+            }
+        }
+
+    } catch (error) {
+        console.error('Error processing PR review:', error);
+
+        // Update review status to failed
+        try {
+            const review = await Review.findById(reviewId);
+            if (review) {
+                review.status = 'failed';
+                review.summary = 'Failed to analyze PR files';
+                await review.save();
+            }
+        } catch (updateError) {
+            console.error('Error updating review status:', updateError);
+        }
     }
 };

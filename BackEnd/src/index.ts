@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import dotenv from 'dotenv';
+dotenv.config();
 import helmet from 'helmet';
 import morgan from 'morgan';
 import cors from 'cors';
@@ -14,7 +15,6 @@ import reviewRoutes from './routes/reviewRoutes';
 import authRoutes from './routes/authRoutes';
 import webhookRoutes from './routes/webhookRoutes';
 
-dotenv.config();
 
 // CONNECT TO MONGODB
 connectDB();

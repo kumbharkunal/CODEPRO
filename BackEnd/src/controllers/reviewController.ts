@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import Review from '../models/Review';
 import { getIO } from '../config/socket';
+import { analyzeMultipleFiles } from '../config/gemini';
 
 // Create review
 export const createReview = async (req: Request, res: Response) => {
@@ -197,5 +198,86 @@ export const getReviewStats = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching review stats:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Trigger AI review (called after review is created)
+export const triggerAIReview = async (reviewId: string, files: { name: string; content: string }[], prContext: string) => {
+  try {
+    // Update review status to in_progress
+    const review = await Review.findById(reviewId);
+    if (!review) {
+      throw new Error('Review not found');
+    }
+
+    review.status = 'in_progress';
+    await review.save();
+
+    // Send WebSocket notification
+    const io = getIO();
+    const userId = review.reviewedBy.toString();
+    io.to(`user_${userId}`).emit('review-updated', {
+      reviewId: review._id,
+      status: 'in_progress',
+      message: 'AI is analyzing your code...',
+      timestamp: new Date().toISOString(),
+    });
+
+    // Analyze code with Gemini
+    const analysis = await analyzeMultipleFiles(files, prContext);
+
+    // Update review with findings
+    review.status = 'completed';
+    review.filesAnalyzed = analysis.filesAnalyzed;
+    review.issuesFound = analysis.totalIssues;
+    review.qualityScore = analysis.qualityScore;
+    review.summary = analysis.summary;
+
+    // Convert findings to match schema
+    review.findings = analysis.findings.map((finding: any) => ({
+      file: finding.file || 'unknown',
+      line: finding.line || 0,
+      severity: finding.severity,
+      category: finding.category,
+      title: finding.title,
+      description: finding.description,
+      suggestion: finding.suggestion,
+      codeSnippet: finding.codeSnippet,
+    }));
+
+    await review.save();
+
+    // Send completion notification
+    io.to(`user_${userId}`).emit('review-completed', {
+      reviewId: review._id,
+      pullRequestTitle: review.pullRequestTitle,
+      issuesFound: review.issuesFound,
+      qualityScore: review.qualityScore,
+      summary: review.summary,
+      timestamp: new Date().toISOString(),
+    });
+
+    console.log(`AI review completed for review ${reviewId}`);
+
+  } catch (error) {
+    console.error('Error in AI review:', error);
+
+    // Update review status to failed
+    const review = await Review.findById(reviewId);
+    if (review) {
+      review.status = 'failed';
+      review.summary = 'AI review failed due to an error';
+      await review.save();
+
+      // Notify user of failure
+      const io = getIO();
+      const userId = review.reviewedBy.toString();
+      io.to(`user_${userId}`).emit('review-updated', {
+        reviewId: review._id,
+        status: 'failed',
+        message: 'AI review failed',
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 };
