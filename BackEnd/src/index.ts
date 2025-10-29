@@ -12,6 +12,7 @@ import userRoutes from './routes/userRoutes';
 import repositoryRoutes from './routes/repositoryRoutes';
 import reviewRoutes from './routes/reviewRoutes';
 import authRoutes from './routes/authRoutes';
+import webhookRoutes from './routes/webhookRoutes';
 
 dotenv.config();
 
@@ -36,6 +37,9 @@ if (process.env.NODE_ENV === 'development') {
 } else {
     app.use(morgan('combined'));
 }
+
+// Webhook routes (must be before express.json())
+app.use('/api/webhook', webhookRoutes);
 
 // BODY PARSER
 app.use(express.json());
