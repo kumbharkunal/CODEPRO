@@ -9,71 +9,128 @@ export const getGeminiModel = () => {
 };
 
 // Analyze code with Gemini
+// Analyze code with Gemini (IMPROVED)
 export const analyzeCode = async (code: string, fileName: string, prContext: string) => {
     try {
         const model = getGeminiModel();
 
-        const prompt = `You are an expert code reviewer. Analyze the following code and provide detailed feedback.
+        // Get file extension for language detection
+        const extension = fileName.substring(fileName.lastIndexOf('.'));
+        const language = getLanguageName(extension);
+
+        const prompt = `You are an expert code reviewer analyzing a ${language} file.
 
 File: ${fileName}
 Pull Request Context: ${prContext}
 
-Code:
-\`\`\`
+Code to review:
+\`\`\`${language}
 ${code}
 \`\`\`
 
-Please provide a comprehensive code review including:
-1. **Bugs**: Any logical errors or potential bugs
-2. **Security Issues**: Vulnerabilities, injection risks, authentication problems
-3. **Performance**: Inefficient code, memory leaks, optimization opportunities
-4. **Code Quality**: Style issues, readability, maintainability
-5. **Best Practices**: Violations of language-specific best practices
+Provide a comprehensive code review focusing on:
 
-For each issue found, provide:
-- Severity: critical, high, medium, low, or info
-- Category: bug, security, performance, style, or best-practice
-- Line number (estimate based on code)
-- Clear description of the issue
-- Specific suggestion for fixing it
+1. **Bugs & Logic Errors**: Potential runtime errors, null pointer exceptions, off-by-one errors, logic flaws
+2. **Security Vulnerabilities**: SQL injection, XSS, CSRF, authentication issues, exposed secrets, insecure dependencies
+3. **Performance Issues**: Inefficient algorithms, memory leaks, unnecessary database queries, N+1 problems
+4. **Code Quality**: Readability, maintainability, naming conventions, code duplication
+5. **Best Practices**: Language-specific patterns, design patterns, SOLID principles
 
-Format your response as JSON:
+For EACH issue found, provide:
+- Specific line number (estimate based on code structure)
+- Severity: "critical" (security/crashes), "high" (bugs), "medium" (quality), "low" (style), "info" (suggestions)
+- Category: "bug", "security", "performance", "style", "best-practice"
+- Clear title (max 60 chars)
+- Detailed description
+- Actionable suggestion
+- Code snippet showing the problem (if applicable)
+
+Return ONLY valid JSON (no markdown, no extra text):
+
 {
-  "summary": "Overall assessment of the code",
-  "qualityScore": 85, // Score from 0-100
+  "summary": "Brief overall assessment (2-3 sentences)",
+  "qualityScore": 85,
   "findings": [
     {
+      "file": "${fileName}",
+      "line": 42,
       "severity": "high",
       "category": "security",
-      "line": 42,
       "title": "SQL Injection Vulnerability",
-      "description": "User input is directly concatenated into SQL query",
-      "suggestion": "Use parameterized queries or ORM",
+      "description": "User input concatenated directly into SQL query without sanitization",
+      "suggestion": "Use parameterized queries or an ORM to prevent SQL injection",
       "codeSnippet": "SELECT * FROM users WHERE id = " + userId
     }
   ]
 }
 
-If the code is excellent with no issues, return an empty findings array but still provide summary and qualityScore.`;
+If the code is excellent with no issues, return:
+{
+  "summary": "Code looks good! No major issues found.",
+  "qualityScore": 95,
+  "findings": []
+}
+
+IMPORTANT: 
+- Be thorough but practical
+- Focus on real issues, not nitpicking
+- Provide constructive feedback
+- Return ONLY the JSON object`;
 
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
 
+        console.log('🤖 Gemini raw response length:', text.length);
+
         // Parse JSON response
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch) {
-            throw new Error('Failed to parse Gemini response');
+            console.error('❌ Failed to parse Gemini response - no JSON found');
+            console.error('Response:', text.substring(0, 500));
+            throw new Error('Failed to parse AI response');
         }
 
         const analysis = JSON.parse(jsonMatch[0]);
+
+        // Ensure file property is set in all findings
+        if (analysis.findings) {
+            analysis.findings = analysis.findings.map((f: any) => ({
+                ...f,
+                file: f.file || fileName,
+            }));
+        }
+
         return analysis;
 
-    } catch (error) {
-        console.error('Error analyzing code with Gemini:', error);
+    } catch (error: any) {
+        console.error('❌ Error analyzing code with Gemini:', error.message);
         throw error;
     }
 };
+
+// Helper function to get language name from extension
+function getLanguageName(extension: string): string {
+    const languages: { [key: string]: string } = {
+        '.js': 'javascript',
+        '.ts': 'typescript',
+        '.jsx': 'javascript',
+        '.tsx': 'typescript',
+        '.py': 'python',
+        '.java': 'java',
+        '.go': 'go',
+        '.rb': 'ruby',
+        '.php': 'php',
+        '.cpp': 'c++',
+        '.c': 'c',
+        '.cs': 'c#',
+        '.swift': 'swift',
+        '.kt': 'kotlin',
+        '.rs': 'rust',
+    };
+
+    return languages[extension.toLowerCase()] || 'code';
+}
 
 // Analyze multiple files
 export const analyzeMultipleFiles = async (

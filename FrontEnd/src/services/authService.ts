@@ -1,36 +1,22 @@
 import api from './api';
 
-export interface LoginData {
-  email: string;
+export interface SyncClerkUserData {
   clerkId: string;
-}
-
-export interface LoginResponse {
-  message: string;
-  token: string;
-  user: {
-    id: string;
-    email: string;
-    name: string;
-    role: 'admin' | 'developer' | 'viewer';
-  };
+  email: string;
+  name: string;
+  profileImage?: string;
 }
 
 export const authService = {
-  // Login
-  login: async (data: LoginData): Promise<LoginResponse> => {
-    const response = await api.post('/auth/login', data);
+  // Sync Clerk user with backend
+  syncClerkUser: async (data: SyncClerkUserData) => {
+    const response = await api.post('/clerk/sync', data);
     return response.data;
   },
 
   // Get current user
   getCurrentUser: async () => {
-    const response = await api.get('/auth/me');
+    const response = await api.get('/users/me');
     return response.data;
-  },
-
-  // Logout (client-side only, no API call needed)
-  logout: () => {
-    localStorage.removeItem('token');
   },
 };

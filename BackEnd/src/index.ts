@@ -14,6 +14,10 @@ import repositoryRoutes from './routes/repositoryRoutes';
 import reviewRoutes from './routes/reviewRoutes';
 import authRoutes from './routes/authRoutes';
 import webhookRoutes from './routes/webhookRoutes';
+import clerkRoutes from './routes/clerkRoutes';
+import githubRoutes from './routes/githubRoutes';
+import stripeRoutes from './routes/stripeRoutes';
+import uploadRoutes from './routes/uploadRoutes';
 
 
 // CONNECT TO MONGODB
@@ -40,6 +44,7 @@ if (process.env.NODE_ENV === 'development') {
 
 // Webhook routes (must be before express.json())
 app.use('/api/webhook', webhookRoutes);
+app.use('/api/stripe/webhook', stripeRoutes);
 
 // BODY PARSER
 app.use(express.json());
@@ -71,6 +76,10 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/repositories', repositoryRoutes);
 app.use('/api/reviews', reviewRoutes);
+app.use('/api/clerk', clerkRoutes);
+app.use('/api/github', githubRoutes);
+app.use('/api/stripe', stripeRoutes);
+app.use('/api/upload', uploadRoutes);
 
 app.get('/', (req: express.Request , res: express.Response) => {
     res.json({ message: 'CodePro API is running! 🚀' });

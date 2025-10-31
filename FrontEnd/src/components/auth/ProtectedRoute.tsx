@@ -1,14 +1,14 @@
 import { Navigate } from 'react-router-dom';
-import { useAppSelector } from '@/store/hooks';
+import { useAuth } from '@clerk/clerk-react';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { token, loading } = useAppSelector(state => state.auth);
+  const { isLoaded, isSignedIn } = useAuth();
 
-  if (loading) {
+  if (!isLoaded) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-lg">Loading...</div>
@@ -16,7 +16,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
-  if (!token) {
+  if (!isSignedIn) {
     return <Navigate to="/login" replace />;
   }
 

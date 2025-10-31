@@ -30,6 +30,30 @@ const UserSchema: Schema = new Schema(
             type: [String],
             default: [],
         },
+        subscription: {
+            plan: {
+                type: String,
+                enum: ['free', 'pro', 'enterprise'],
+                default: 'free',
+            },
+            stripeCustomerId: {
+                type: String,
+            },
+            stripeSubscriptionId: {
+                type: String,
+            },
+            stripePriceId: {
+                type: String,
+            },
+            status: {
+                type: String,
+                enum: ['active', 'canceled', 'past_due', 'trialing'],
+                default: 'active',
+            },
+            currentPeriodEnd: {
+                type: Date,
+            },
+        },
     },
     {
         timestamps: true,

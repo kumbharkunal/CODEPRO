@@ -7,6 +7,14 @@ export interface IUser extends Document {
   profileImage?: string;
   role: 'admin' | 'developer' | 'viewer';
   repositories: string[];
+  subscription: {
+    plan: 'free' | 'pro' | 'enterprise';
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    stripePriceId?: string;
+    status: 'active' | 'canceled' | 'past_due' | 'trialing';
+    currentPeriodEnd?: Date;
+  };
   createdAt: Date;
   updatedAt: Date;
 }

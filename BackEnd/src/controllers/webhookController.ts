@@ -3,224 +3,342 @@ import { verifyGitHubSignature } from '../utils/webhookVerification';
 import Review from '../models/Review';
 import Repository from '../models/Repository';
 import { getIO } from '../config/socket';
-import { getPullRequestFiles, getFileContent } from '../config/github';
-import { triggerAIReview } from '../controllers/reviewController';
+import { getPullRequestFiles, getFileContent, postReviewComment, formatReviewAsMarkdown } from '../config/github';
+import { analyzeMultipleFiles } from '../config/gemini';
 
 export const handleGitHubWebhook = async (req: Request, res: Response) => {
-    try {
-        // Get signature from header
-        const signature = req.headers['x-hub-signature-256'] as string;
-
-        if (!signature) {
-            return res.status(401).json({ message: 'No signature provided' });
-        }
-
-        // Verify signature
-        const payload = JSON.stringify(req.body);
-        const secret = process.env.GITHUB_WEBHOOK_SECRET as string;
-
-        const isValid = verifyGitHubSignature(payload, signature, secret);
-
-        if (!isValid) {
-            console.error('Invalid webhook signature');
-            return res.status(401).json({ message: 'Invalid signature' });
-        }
-
-        // Get event type
-        const event = req.headers['x-github-event'] as string;
-
-        console.log(`GitHub webhook received: ${event}`);
-
-        // Handle different events
-        switch (event) {
-            case 'pull_request':
-                await handlePullRequestEvent(req.body);
-                break;
-
-            case 'ping':
-                console.log('Ping event received - webhook is active');
-                break;
-
-            default:
-                console.log(`Unhandled event type: ${event}`);
-        }
-
-        // Always respond 200 to acknowledge receipt
-        res.status(200).json({ message: 'Webhook received' });
-    } catch (error) {
-        console.error('Error handling webhook:', error);
-        res.status(500).json({ message: 'Internal server error' });
+  try {
+    // Get signature from header
+    const signature = req.headers['x-hub-signature-256'] as string;
+    
+    if (!signature) {
+      console.error('No signature provided');
+      return res.status(401).json({ message: 'No signature provided' });
     }
+
+    // Verify signature
+    const payload = JSON.stringify(req.body);
+    const secret = process.env.GITHUB_WEBHOOK_SECRET as string;
+    
+    const isValid = verifyGitHubSignature(payload, signature, secret);
+    
+    if (!isValid) {
+      console.error('Invalid webhook signature');
+      return res.status(401).json({ message: 'Invalid signature' });
+    }
+
+    // Get event type
+    const event = req.headers['x-github-event'] as string;
+    
+    console.log(`✅ GitHub webhook received: ${event}`);
+
+    // Handle different events
+    switch (event) {
+      case 'pull_request':
+        await handlePullRequestEvent(req.body);
+        break;
+      
+      case 'ping':
+        console.log('✅ Ping event received - webhook is active');
+        break;
+      
+      default:
+        console.log(`ℹ️ Unhandled event type: ${event}`);
+    }
+
+    // Always respond 200 to acknowledge receipt
+    res.status(200).json({ message: 'Webhook received' });
+  } catch (error) {
+    console.error('❌ Error handling webhook:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 };
 
 // Handle pull request events
 const handlePullRequestEvent = async (payload: any) => {
-    try {
-        const action = payload.action;
-        const pullRequest = payload.pull_request;
-        const repository = payload.repository;
+  try {
+    const action = payload.action;
+    const pullRequest = payload.pull_request;
+    const repository = payload.repository;
 
-        console.log(`Pull request ${action}: ${pullRequest.title}`);
+    console.log(`📋 Pull request ${action}: ${pullRequest.title}`);
 
-        // Only handle opened, reopened, and synchronize events
-        if (!['opened', 'reopened', 'synchronize'].includes(action)) {
-            console.log(`Ignoring action: ${action}`);
-            return;
-        }
-
-        // Find repository in database
-        const dbRepository = await Repository.findOne({
-            githubRepoId: repository.id
-        }).populate('connectedBy');
-
-        if (!dbRepository) {
-            console.log(`Repository not found in database: ${repository.full_name}`);
-            return;
-        }
-
-        // Create review record
-        const newReview = new Review({
-            repositoryId: dbRepository._id,
-            pullRequestNumber: pullRequest.number,
-            pullRequestTitle: pullRequest.title,
-            pullRequestUrl: pullRequest.html_url,
-            author: pullRequest.user.login,
-            reviewedBy: dbRepository.connectedBy,
-            status: 'pending',
-        });
-
-        await newReview.save();
-
-        console.log(`Review created for PR #${pullRequest.number}`);
-
-        // Send WebSocket notification
-        try {
-            const io = getIO();
-            const userId = dbRepository.connectedBy
-
-            io.to(`user_${userId}`).emit('review-created', {
-                reviewId: newReview._id,
-                pullRequestTitle: pullRequest.title,
-                pullRequestNumber: pullRequest.number,
-                repository: repository.full_name,
-                timestamp: new Date().toISOString(),
-            });
-
-            console.log(`WebSocket notification sent for new review`);
-        } catch (socketError) {
-            console.error('Error sending WebSocket notification:', socketError);
-        }
-
-        // Fetch PR files and trigger AI review (async, don't wait)
-        processPullRequestReview(
-            newReview.id,
-            repository.owner.login,
-            repository.name,
-            pullRequest.number,
-            pullRequest.head.sha,
-            pullRequest.title + '\n\n' + (pullRequest.body || ''),
-            process.env.GITHUB_TOKEN as string
-        ).catch(error => {
-            console.error('Error processing PR review:', error);
-        });
-
-    } catch (error) {
-        console.error('Error handling pull request event:', error);
+    // Only handle opened, reopened, and synchronize events
+    if (!['opened', 'reopened', 'synchronize'].includes(action)) {
+      console.log(`⏭️ Ignoring action: ${action}`);
+      return;
     }
+
+    // Find repository in database
+    const dbRepository = await Repository.findOne({ 
+      githubRepoId: repository.id 
+    }).populate('connectedBy');
+
+    if (!dbRepository) {
+      console.log(`⚠️ Repository not found in database: ${repository.full_name}`);
+      return;
+    }
+
+    console.log(`✅ Found repository in database: ${dbRepository.name}`);
+
+    // Create review record
+    const newReview = new Review({
+      repositoryId: dbRepository._id,
+      pullRequestNumber: pullRequest.number,
+      pullRequestTitle: pullRequest.title,
+      pullRequestUrl: pullRequest.html_url,
+      author: pullRequest.user.login,
+      reviewedBy: dbRepository.connectedBy,
+      status: 'pending',
+    });
+
+    await newReview.save();
+
+    console.log(`✅ Review created: ${newReview._id}`);
+
+    // Send WebSocket notification
+    try {
+      const io = getIO();
+      const userId = dbRepository.connectedBy.toString();
+      
+      io.to(`user_${userId}`).emit('review-created', {
+        reviewId: newReview._id,
+        pullRequestTitle: pullRequest.title,
+        pullRequestNumber: pullRequest.number,
+        repository: repository.full_name,
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log(`✅ WebSocket notification sent for new review`);
+    } catch (socketError) {
+      console.error('❌ Error sending WebSocket notification:', socketError);
+    }
+
+    // Process review asynchronously (don't block webhook response)
+    processPullRequestReview(
+      newReview.id.toString(),
+      repository.owner.login,
+      repository.name,
+      pullRequest.number,
+      pullRequest.head.sha,
+      pullRequest.title + '\n\n' + (pullRequest.body || ''),
+      dbRepository.githubAccessToken as string
+    ).catch(error => {
+      console.error('❌ Error processing PR review:', error);
+    });
+
+  } catch (error) {
+    console.error('❌ Error handling pull request event:', error);
+  }
 };
 
 // Process PR review (fetch files and analyze)
 const processPullRequestReview = async (
-    reviewId: string,
-    owner: string,
-    repo: string,
-    pullNumber: number,
-    commitSha: string,
-    prContext: string,
-    githubToken: string
+  reviewId: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  commitSha: string,
+  prContext: string,
+  githubToken: string
 ) => {
-    try {
-        console.log(`Processing review ${reviewId}...`);
+  console.log(`\n🔄 Starting review process for Review ID: ${reviewId}`);
+  console.log(`📦 Repository: ${owner}/${repo}`);
+  console.log(`🔀 PR #${pullNumber}`);
 
-        // Fetch PR files
-        const prFiles = await getPullRequestFiles(owner, repo, pullNumber, githubToken);
-        console.log(`Found ${prFiles.length} code files to analyze`);
-
-        if (prFiles.length === 0) {
-            // No code files to review
-            const review = await Review.findById(reviewId);
-            if (review) {
-                review.status = 'completed';
-                review.summary = 'No code files to review';
-                review.filesAnalyzed = 0;
-                review.issuesFound = 0;
-                review.qualityScore = 100;
-                await review.save();
-            }
-            return;
-        }
-
-        // Fetch content of each file
-        const filesWithContent: { name: string; content: string }[] = [];
-
-        for (const file of prFiles.slice(0, 10)) { // Limit to 10 files for now
-            try {
-                const content = await getFileContent(
-                    owner,
-                    repo,
-                    file.filename,
-                    commitSha,
-                    githubToken
-                );
-
-                if (content) {
-                    filesWithContent.push({
-                        name: file.filename,
-                        content: content,
-                    });
-                }
-
-                // Delay to respect rate limits
-                await new Promise(resolve => setTimeout(resolve, 500));
-            } catch (error) {
-                console.error(`Error fetching file ${file.filename}:`, error);
-            }
-        }
-
-        console.log(`Fetched content for ${filesWithContent.length} files`);
-
-        // Trigger AI review
-        if (filesWithContent.length > 0) {
-            await triggerAIReview(reviewId, filesWithContent, prContext);
-
-            // Post review comment to GitHub
-            try {
-                const review = await Review.findById(reviewId);
-                if (review && review.status === 'completed') {
-                    const { postReviewComment, formatReviewAsMarkdown } = require('../config/github');
-                    const markdown = formatReviewAsMarkdown(review);
-
-                    await postReviewComment(owner, repo, pullNumber, markdown, githubToken);
-                    console.log(`Posted AI review to GitHub PR #${pullNumber}`);
-                }
-            } catch (commentError) {
-                console.error('Error posting review comment:', commentError);
-            }
-        }
-
-    } catch (error) {
-        console.error('Error processing PR review:', error);
-
-        // Update review status to failed
-        try {
-            const review = await Review.findById(reviewId);
-            if (review) {
-                review.status = 'failed';
-                review.summary = 'Failed to analyze PR files';
-                await review.save();
-            }
-        } catch (updateError) {
-            console.error('Error updating review status:', updateError);
-        }
+  try {
+    // Update status to in_progress
+    const review = await Review.findById(reviewId).populate('reviewedBy');
+    
+    if (!review) {
+      console.error('❌ Review not found');
+      return;
     }
+
+    review.status = 'in_progress';
+    await review.save();
+
+    console.log(`⏳ Review status: in_progress`);
+
+    // Send WebSocket update
+    try {
+      const io = getIO();
+      const userId = review.reviewedBy;
+      
+      io.to(`user_${userId}`).emit('review-updated', {
+        reviewId: review._id,
+        status: 'in_progress',
+        message: 'AI is analyzing your code...',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (socketError) {
+      console.error('❌ Error sending WebSocket update:', socketError);
+    }
+
+    // Fetch PR files
+    console.log(`📥 Fetching PR files...`);
+    const prFiles = await getPullRequestFiles(owner, repo, pullNumber, githubToken);
+    console.log(`✅ Found ${prFiles.length} files in PR`);
+
+    if (prFiles.length === 0) {
+      console.log('⚠️ No code files to review');
+      
+      review.status = 'completed';
+      review.summary = 'No code files to review in this PR';
+      review.filesAnalyzed = 0;
+      review.issuesFound = 0;
+      review.qualityScore = 100;
+      await review.save();
+
+      // Send completion notification
+      const io = getIO();
+      const userId = review.reviewedBy;
+      io.to(`user_${userId}`).emit('review-completed', {
+        reviewId: review._id,
+        pullRequestTitle: review.pullRequestTitle,
+        issuesFound: 0,
+        qualityScore: 100,
+        summary: 'No code files to review',
+        timestamp: new Date().toISOString(),
+      });
+
+      return;
+    }
+
+    // Fetch content of each file (limit to 10 files to avoid timeout)
+    const filesToAnalyze = prFiles.slice(0, 10);
+    const filesWithContent: { name: string; content: string }[] = [];
+    
+    console.log(`📄 Fetching content for ${filesToAnalyze.length} files...`);
+
+    for (const file of filesToAnalyze) {
+      try {
+        console.log(`  📄 Fetching: ${file.filename}`);
+        
+        const content = await getFileContent(
+          owner,
+          repo,
+          file.filename,
+          commitSha,
+          githubToken
+        );
+
+        if (content) {
+          filesWithContent.push({
+            name: file.filename,
+            content: content,
+          });
+          console.log(`    ✅ Fetched (${content.length} chars)`);
+        }
+
+        // Delay to respect rate limits
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error: any) {
+        console.error(`    ❌ Error fetching ${file.filename}:`, error.message);
+      }
+    }
+
+    console.log(`✅ Successfully fetched ${filesWithContent.length} files`);
+
+    if (filesWithContent.length === 0) {
+      console.log('⚠️ Could not fetch any file content');
+      
+      review.status = 'failed';
+      review.summary = 'Failed to fetch PR files';
+      await review.save();
+      return;
+    }
+
+    // Analyze with AI
+    console.log(`🤖 Starting AI analysis with Gemini...`);
+    const analysis = await analyzeMultipleFiles(filesWithContent, prContext);
+    console.log(`✅ AI analysis complete!`);
+    console.log(`   Files analyzed: ${analysis.filesAnalyzed}`);
+    console.log(`   Issues found: ${analysis.totalIssues}`);
+    console.log(`   Quality score: ${analysis.qualityScore}/100`);
+
+    // Update review with findings
+    review.status = 'completed';
+    review.filesAnalyzed = analysis.filesAnalyzed;
+    review.issuesFound = analysis.totalIssues;
+    review.qualityScore = analysis.qualityScore;
+    review.summary = analysis.summary;
+    
+    // Convert findings to match schema
+    review.findings = analysis.findings.map((finding: any) => ({
+      file: finding.file || filesWithContent[0]?.name || 'unknown',
+      line: finding.line || 0,
+      severity: finding.severity,
+      category: finding.category,
+      title: finding.title,
+      description: finding.description,
+      suggestion: finding.suggestion,
+      codeSnippet: finding.codeSnippet,
+    }));
+
+    await review.save();
+
+    console.log(`✅ Review saved to database`);
+
+    // Send completion notification
+    try {
+      const io = getIO();
+      const userId = review.reviewedBy;
+      
+      io.to(`user_${userId}`).emit('review-completed', {
+        reviewId: review._id,
+        pullRequestTitle: review.pullRequestTitle,
+        issuesFound: review.issuesFound,
+        qualityScore: review.qualityScore,
+        summary: review.summary,
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log(`✅ Completion notification sent`);
+    } catch (socketError) {
+      console.error('❌ Error sending completion notification:', socketError);
+    }
+
+    // Post review comment to GitHub
+    try {
+      console.log(`💬 Posting review to GitHub...`);
+      
+      const markdown = formatReviewAsMarkdown(review);
+      
+      await postReviewComment(owner, repo, pullNumber, markdown, githubToken);
+      
+      console.log(`✅ Review posted to GitHub PR #${pullNumber}`);
+    } catch (commentError) {
+      console.error('❌ Error posting review comment:', commentError);
+      // Don't fail the review if comment posting fails
+    }
+
+    console.log(`\n🎉 Review process completed successfully!\n`);
+
+  } catch (error: any) {
+    console.error('\n❌ Error processing PR review:', error.message);
+    console.error(error.stack);
+    
+    // Update review status to failed
+    try {
+      const review = await Review.findById(reviewId).populate('reviewedBy');
+      if (review) {
+        review.status = 'failed';
+        review.summary = `Review failed: ${error.message}`;
+        await review.save();
+
+        // Notify user of failure
+        const io = getIO();
+        const userId = review.reviewedBy;
+        io.to(`user_${userId}`).emit('review-updated', {
+          reviewId: review._id,
+          status: 'failed',
+          message: 'AI review failed',
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (updateError) {
+      console.error('❌ Error updating review status:', updateError);
+    }
+  }
 };

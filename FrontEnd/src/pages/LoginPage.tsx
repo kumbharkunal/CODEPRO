@@ -1,78 +1,69 @@
+import { SignIn, SignUp, useUser } from '@clerk/clerk-react';
+import { Navigate } from 'react-router-dom';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { authService } from '@/services/authService';
-import { useAppDispatch } from '@/store/hooks';
-import { setCredentials } from '@/store/slices/authSlice';
-import toast from 'react-hot-toast';
+import { Card } from '@/components/ui/card';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
-  const dispatch = useAppDispatch();
+  const { isSignedIn } = useUser();
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      // Simple login for now (in production, use Clerk)
-      const response = await authService.login({
-        email,
-        clerkId: `temp_${Date.now()}`,
-      });
-
-      // Save to Redux
-      dispatch(setCredentials({
-        user: response.user,
-        token: response.token,
-      }));
-
-      toast.success('Login successful!');
-      navigate('/dashboard');
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (isSignedIn) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Welcome to CodePro</CardTitle>
-          <CardDescription className="text-center">
-            Enter your email to sign in
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background to-muted">
+      <Card className="w-full max-w-md p-6">
+        <div className="text-center mb-6">
+          <h1 className="text-3xl font-bold mb-2">Welcome to CodePro</h1>
+          <p className="text-muted-foreground">
+            AI-powered code reviews for your GitHub repositories
+          </p>
+        </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
-            </Button>
-          </form>
+        <div className="flex gap-2 mb-6">
+          <Button
+            variant={mode === 'signin' ? 'default' : 'outline'}
+            className="flex-1"
+            onClick={() => setMode('signin')}
+          >
+            Sign In
+          </Button>
+          <Button
+            variant={mode === 'signup' ? 'default' : 'outline'}
+            className="flex-1"
+            onClick={() => setMode('signup')}
+          >
+            Sign Up
+          </Button>
+        </div>
 
-          <div className="mt-4 text-center text-sm text-muted-foreground">
-            Don't have an account? One will be created automatically.
-          </div>
-        </CardContent>
+        {mode === 'signin' ? (
+          <SignIn
+            appearance={{
+              elements: {
+                rootBox: 'w-full',
+                card: 'shadow-none',
+              },
+            }}
+            routing="path"
+            path="/login"
+            signUpUrl="/login"
+          />
+        ) : (
+          <SignUp
+            appearance={{
+              elements: {
+                rootBox: 'w-full',
+                card: 'shadow-none',
+              },
+            }}
+            routing="path"
+            path="/login"
+            signInUrl="/login"
+          />
+        )}
       </Card>
     </div>
   );

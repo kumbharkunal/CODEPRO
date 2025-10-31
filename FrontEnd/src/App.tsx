@@ -2,11 +2,11 @@ import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { Toaster } from 'react-hot-toast';
+import { useAuth } from '@clerk/clerk-react';
 import { store } from './store/store';
 import { useTheme } from './hooks/useTheme';
-import { useAppDispatch, useAppSelector } from './store/hooks';
-import { setCredentials, setLoading } from './store/slices/authSlice';
-import { authService } from './services/authService';
+import { useClerkAuth } from './hooks/useClerkAuth';
+import PricingPage from './pages/PricingPage';
 
 // Layout
 import Layout from './components/layout/Layout';
@@ -19,40 +19,21 @@ import DashboardPage from './pages/DashboardPage';
 import ReviewsPage from './pages/ReviewsPage';
 import ReviewDetailPage from './pages/ReviewDetailPage';
 import RepositoriesPage from './pages/RepositoriesPage';
-import NotFoundPage from './pages/NotFoundPage';
+import GitHubCallbackPage from './pages/GitHubCallbackPage';
+import ConnectRepositoryPage from './pages/ConnectRepositoryPage';
+import SettingsPage from './pages/SettingsPage';
+import SubscriptionSuccessPage from './pages/SubscriptionSuccessPage';
 
 function AppContent() {
   const { theme } = useTheme();
-  const dispatch = useAppDispatch();
-  const { token, loading } = useAppSelector(state => state.auth);
-
-  // Check authentication on mount
-  useEffect(() => {
-    const checkAuth = async () => {
-      const storedToken = localStorage.getItem('token');
-
-      if (storedToken) {
-        try {
-          const user = await authService.getCurrentUser();
-          dispatch(setCredentials({ user, token: storedToken }));
-        } catch (error) {
-          console.error('Auth check failed:', error);
-          localStorage.removeItem('token');
-        }
-      }
-
-      dispatch(setLoading(false));
-    };
-
-    checkAuth();
-  }, [dispatch]);
+  const { isLoaded, isSignedIn } = useAuth();
+  useClerkAuth(); // Sync Clerk with our backend
 
   useEffect(() => {
-    // Apply theme on mount
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
-  if (loading) {
+  if (!isLoaded) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-lg">Loading...</div>
@@ -63,7 +44,6 @@ function AppContent() {
   return (
     <Router>
       <div className="min-h-screen bg-background text-foreground">
-        {/* Toast notifications */}
         <Toaster
           position="top-right"
           toastOptions={{
@@ -77,11 +57,12 @@ function AppContent() {
         />
 
         <Routes>
-          {/* Public Routes */}
           <Route path="/" element={<HomePage />} />
-          <Route path="/login" element={token ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+          <Route
+            path="/login"
+            element={isSignedIn ? <Navigate to="/dashboard" replace /> : <LoginPage />}
+          />
 
-          {/* Protected Routes */}
           <Route element={<Layout />}>
             <Route
               path="/dashboard"
@@ -115,10 +96,30 @@ function AppContent() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <SettingsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/auth/github/callback"
+              element={<GitHubCallbackPage />}
+            />
+            <Route
+              path="/repositories/connect"
+              element={
+                <ProtectedRoute>
+                  <ConnectRepositoryPage />
+                </ProtectedRoute>
+              }
+            />
           </Route>
-
-          {/* 404 */}
-          <Route path="*" element={<NotFoundPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/subscription/success" element={<SubscriptionSuccessPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
     </Router>

@@ -9,13 +9,13 @@ import {
   getReviewStats,
 } from '../controllers/reviewController';
 import { createReviewLimiter } from '../config/rateLimiter';
-import { authenticate } from '../middlewares/auth';
+import { authenticateClerk } from '../middlewares/auth';
 import Repository from '../models/Repository';
 
 const router = express.Router();
 
 // POST /api/reviews - Create new review
-router.post('/', authenticate, createReviewLimiter, createReview);
+router.post('/', authenticateClerk, createReviewLimiter, createReview);
 
 // GET /api/reviews - Get all reviews
 router.get('/', getAllReviews);
@@ -37,7 +37,7 @@ router.put('/:id', updateReview);
 
 // POST /api/reviews/test-ai - Test AI review (development only)
 // if (process.env.NODE_ENV === 'development') {
-  router.post('/test-ai', authenticate, async (req: any, res: any) => {
+  router.post('/test-ai', authenticateClerk, async (req: any, res: any) => {
     try {
       const { code, fileName } = req.body;
       
@@ -54,7 +54,7 @@ router.put('/:id', updateReview);
 
 // POST /api/reviews/manual-trigger - Manually trigger review (development)
 // if (process.env.NODE_ENV === 'development') {
-  router.post('/manual-trigger', authenticate, async (req: any, res: any) => {
+  router.post('/manual-trigger', authenticateClerk, async (req: any, res: any) => {
     try {
       const { owner, repo, pullNumber } = req.body;
       

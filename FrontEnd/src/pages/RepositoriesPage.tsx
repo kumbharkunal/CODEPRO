@@ -6,6 +6,7 @@ import { repositoryService } from '@/services/repositoryService';
 import { Repository } from '@/types';
 import { Github, Trash2, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { githubService } from '@/services/githubService';
 
 export default function RepositoriesPage() {
   const [repositories, setRepositories] = useState<Repository[]>([]);
@@ -57,9 +58,9 @@ export default function RepositoriesPage() {
           <h1 className="text-3xl font-bold">Repositories</h1>
           <p className="text-muted-foreground">Manage connected GitHub repositories</p>
         </div>
-        <Button>
+        <Button onClick={() => githubService.startOAuth()}>
           <Plus className="w-4 h-4 mr-2" />
-          Connect Repository
+          Connect GitHub Repository
         </Button>
       </div>
 
@@ -74,7 +75,7 @@ export default function RepositoriesPage() {
                 Connect your first GitHub repository to start reviewing code
               </p>
             </div>
-            <Button>
+            <Button onClick={() => githubService.startOAuth()}>
               <Plus className="w-4 h-4 mr-2" />
               Connect Repository
             </Button>
@@ -83,8 +84,8 @@ export default function RepositoriesPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {repositories.map((repo) => (
-            <RepositoryCard 
-              key={repo._id} 
+            <RepositoryCard
+              key={repo._id}
               repository={repo}
               onDelete={() => handleDelete(repo._id)}
             />
@@ -95,11 +96,11 @@ export default function RepositoriesPage() {
   );
 }
 
-function RepositoryCard({ 
-  repository, 
-  onDelete 
-}: { 
-  repository: Repository; 
+function RepositoryCard({
+  repository,
+  onDelete
+}: {
+  repository: Repository;
   onDelete: () => void;
 }) {
   return (
@@ -123,7 +124,7 @@ function RepositoryCard({
           {repository.description && (
             <p className="text-sm text-muted-foreground">{repository.description}</p>
           )}
-          
+
           <div className="flex items-center gap-4 text-sm">
             <div className="flex items-center gap-1">
               <span className="text-muted-foreground">Branch:</span>
@@ -137,16 +138,16 @@ function RepositoryCard({
 
           <div className="flex gap-2 pt-2">
             <Button variant="outline" size="sm" asChild>
-              <a 
-                href={`https://github.com/${repository.fullName}`} 
-                target="_blank" 
+              <a
+                href={`https://github.com/${repository.fullName}`}
+                target="_blank"
                 rel="noopener noreferrer"
               >
                 View on GitHub
               </a>
             </Button>
-            <Button 
-              variant="destructive" 
+            <Button
+              variant="destructive"
               size="sm"
               onClick={onDelete}
             >

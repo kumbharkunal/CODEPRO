@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { addReview, updateReview } from '@/store/slices/reviewSlice';
+// import { addReview, updateReview } from '@/store/slices/reviewSlice';
 import toast from 'react-hot-toast';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:5000';
@@ -59,7 +59,7 @@ export const useSocket = () => {
     socket.on('review-updated', (data) => {
       console.log('Review updated:', data);
       
-      toast.info(data.message || 'Review status updated');
+      toast(data.message || 'Review status updated');
     });
 
     socket.on('review-completed', (data) => {

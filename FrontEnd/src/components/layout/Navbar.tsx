@@ -92,6 +92,10 @@ export default function Navbar() {
                   <User className="w-4 h-4 mr-2" />
                   Profile
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/settings')}>
+                  <User className="w-4 h-4 mr-2" />
+                  Settings
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleLogout}>
                   <LogOut className="w-4 h-4 mr-2" />
                   Logout
