@@ -40,8 +40,11 @@ export const login = async (req: Request, res: Response) => {
 
 export const getCurrentUser = async (req: any, res: Response) => {
     try {
-        const userId = req.user.userId;
-        const user = await User.findById(userId).select('-__v');
+        const user = await User.findById(req.user._id).select('-__v');
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });

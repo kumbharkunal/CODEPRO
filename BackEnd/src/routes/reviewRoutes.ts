@@ -86,7 +86,7 @@ router.put('/:id', updateReview);
           fullName: `${owner}/${repo}`,
           owner: owner,
           defaultBranch: 'main',
-          connectedBy: req.user.userId,
+          connectedBy: req.user._id,
           isPrivate: false,
         });
         await dbRepo.save();

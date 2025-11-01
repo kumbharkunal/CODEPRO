@@ -1,9 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { clerkClient } from '@clerk/clerk-sdk-node';
+import User from '../models/User'; // Import your Mongoose User model
 
-interface AuthRequest extends Request {
-  userId?: string;
-  user?: any;
+// Define a custom request type that includes your local user
+export interface AuthRequest extends Request {
+  user?: any; 
 }
 
 export const authenticateClerk = async (
@@ -19,37 +20,52 @@ export const authenticateClerk = async (
     }
 
     const token = authHeader.split(' ')[1];
-    const sessionId = req.headers['x-clerk-session-id'] as string;
 
-    // Verify Clerk session token
-    const session = await clerkClient.sessions.verifySession(sessionId,token);
+    // 1. Verify the token using Clerk's JWT verification
+    const claims = await clerkClient.verifyToken(token);
     
-    if (!session) {
+    if (!claims) {
       return res.status(401).json({ message: 'Invalid token' });
     }
-
-    // Get user from Clerk
-    const clerkUser = await clerkClient.users.getUser(session.userId);
     
-    req.userId = clerkUser.id;
-    req.user = clerkUser;
+    // 2. Get the clerkId (called 'sub' in the JWT)
+    const clerkId = claims.sub;
+
+    if (!clerkId) {
+      return res.status(401).json({ message: 'Invalid token payload' });
+    }
+
+    // 3. Find the local user in your MongoDB
+    const localUser = await User.findOne({ clerkId: clerkId });
+    
+    if (!localUser) {
+      // This case shouldn't happen if frontend sync-on-login works
+      return res.status(401).json({ message: 'User not synced. Please log out and log back in.' });
+    }
+
+    // 4. Attach the local MongoDB user object to req.user
+    req.user = localUser;
 
     next();
-  } catch (error) {
-    console.error('Clerk authentication error:', error);
+  } catch (error: any) {
+    console.error('Clerk authentication error:', error.message);
     res.status(401).json({ message: 'Authentication failed' });
   }
 };
 
-// Keep existing authorize middleware
+// 5. Add the missing logic to your authorize middleware
 export const authorize = (...roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ message: 'Not authenticated' });
     }
 
-    // Check role in our database
-    // (You'll need to fetch user from DB and check role)
+    // Check the user's role (from our local DB)
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ 
+        message: `Forbidden: User role (${req.user.role}) is not authorized.` 
+      });
+    }
     
     next();
   };

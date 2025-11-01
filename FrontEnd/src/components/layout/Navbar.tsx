@@ -14,6 +14,7 @@ import { toggleTheme } from '@/store/slices/themeSlice';
 import { useNavigate } from 'react-router-dom';
 import { Code2, Moon, Sun, LogOut, User } from 'lucide-react';
 
+
 export default function Navbar() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
