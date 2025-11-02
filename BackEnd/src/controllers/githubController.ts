@@ -123,7 +123,11 @@ export const connectRepository = async (req: Request, res: Response) => {
     const [repoOwner, repoName] = fullName.split('/');
 
     // Get webhook URL (use environment variable or construct)
-    const webhookUrl = process.env.WEBHOOK_URL || 'http://localhost:5000/api/webhook/github';
+    const webhookUrl = process.env.WEBHOOK_URL;
+    if (!webhookUrl) {
+      console.error('FATAL: WEBHOOK_URL is not set in environment variables.');
+      return res.status(500).json({ message: 'Webhook URL not configured' });
+    }
 
     let webhookId = null;
     let webhookActive = false;

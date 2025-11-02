@@ -1,5 +1,6 @@
 import mongoose, { Schema } from "mongoose";
 import { IRepository } from "../types/repository.interface";
+import { required } from "zod/v4/core/util.cjs";
 
 const RepositorySchema: Schema = new Schema(
     {
@@ -34,7 +35,7 @@ const RepositorySchema: Schema = new Schema(
             default: 'main',
         },
         webhookId: {
-            type: Boolean,
+            type: Number,
             default: false,
         },
         webhookActive: {
@@ -46,6 +47,10 @@ const RepositorySchema: Schema = new Schema(
             ref: 'User',
             required: true,
         },
+        githubAccessToken: {
+            type: String,
+            required: true,
+        }
     },
     {
         timestamps: true,
