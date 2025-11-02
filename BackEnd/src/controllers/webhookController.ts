@@ -11,18 +11,18 @@ export const handleGitHubWebhook = async (req: Request, res: Response) => {
   try {
     // Get signature from header
     const signature = req.headers['x-hub-signature-256'] as string;
-    
+
     if (!signature) {
       console.error('No signature provided');
       return res.status(401).json({ message: 'No signature provided' });
     }
 
     // Verify signature
-    const payload = JSON.stringify(req.body);
+    const payload = req.body.toString();
     const secret = process.env.GITHUB_WEBHOOK_SECRET as string;
-    
+
     const isValid = verifyGitHubSignature(payload, signature, secret);
-    
+
     if (!isValid) {
       console.error('Invalid webhook signature');
       return res.status(401).json({ message: 'Invalid signature' });
@@ -30,7 +30,7 @@ export const handleGitHubWebhook = async (req: Request, res: Response) => {
 
     // Get event type
     const event = req.headers['x-github-event'] as string;
-    
+
     console.log(`✅ GitHub webhook received: ${event}`);
 
     // Handle different events
@@ -38,11 +38,11 @@ export const handleGitHubWebhook = async (req: Request, res: Response) => {
       case 'pull_request':
         await handlePullRequestEvent(req.body);
         break;
-      
+
       case 'ping':
         console.log('✅ Ping event received - webhook is active');
         break;
-      
+
       default:
         console.log(`ℹ️ Unhandled event type: ${event}`);
     }
@@ -71,11 +71,11 @@ const handlePullRequestEvent = async (payload: any) => {
     }
 
     // Find repository in database - IMPORTANT: Select githubAccessToken
-    const dbRepository = await Repository.findOne({ 
-      githubRepoId: repository.id 
+    const dbRepository = await Repository.findOne({
+      githubRepoId: repository.id
     })
-    .populate('connectedBy')
-    .select('+githubAccessToken'); // ✅ FIX: Add this to get the token
+      .populate('connectedBy')
+      .select('+githubAccessToken'); // ✅ FIX: Add this to get the token
 
     if (!dbRepository) {
       console.log(`⚠️ Repository not found in database: ${repository.full_name}`);
@@ -89,7 +89,7 @@ const handlePullRequestEvent = async (payload: any) => {
     const userId = connectedByUser._id || connectedByUser;
 
     // Create review record
-    const newReview = <any> new  Review({
+    const newReview = <any>new Review({
       repositoryId: dbRepository._id,
       pullRequestNumber: pullRequest.number,
       pullRequestTitle: pullRequest.title,
@@ -106,7 +106,7 @@ const handlePullRequestEvent = async (payload: any) => {
     // Send WebSocket notification
     try {
       const io = getIO();
-      
+
       io.to(`user_${userId.toString()}`).emit('review-created', {
         reviewId: newReview._id,
         pullRequestTitle: pullRequest.title,
@@ -167,7 +167,7 @@ const processPullRequestReview = async (
   try {
     // Update status to in_progress
     const review = await Review.findById(reviewId).populate('reviewedBy');
-    
+
     if (!review) {
       console.error('❌ Review not found');
       return;
@@ -185,7 +185,7 @@ const processPullRequestReview = async (
     // Send WebSocket update
     try {
       const io = getIO();
-      
+
       io.to(`user_${userId.toString()}`).emit('review-updated', {
         reviewId: review._id,
         status: 'in_progress',
@@ -203,7 +203,7 @@ const processPullRequestReview = async (
 
     if (prFiles.length === 0) {
       console.log('⚠️ No code files to review');
-      
+
       review.status = 'completed';
       review.summary = 'No code files to review in this PR';
       review.filesAnalyzed = 0;
@@ -228,13 +228,13 @@ const processPullRequestReview = async (
     // Fetch content of each file (limit to 10 files to avoid timeout)
     const filesToAnalyze = prFiles.slice(0, 10);
     const filesWithContent: { name: string; content: string }[] = [];
-    
+
     console.log(`📄 Fetching content for ${filesToAnalyze.length} files...`);
 
     for (const file of filesToAnalyze) {
       try {
         console.log(`  📄 Fetching: ${file.filename}`);
-        
+
         const content = await getFileContent(
           owner,
           repo,
@@ -262,7 +262,7 @@ const processPullRequestReview = async (
 
     if (filesWithContent.length === 0) {
       console.log('⚠️ Could not fetch any file content');
-      
+
       review.status = 'failed';
       review.summary = 'Failed to fetch PR files';
       await review.save();
@@ -283,7 +283,7 @@ const processPullRequestReview = async (
     review.issuesFound = analysis.totalIssues;
     review.qualityScore = analysis.qualityScore;
     review.summary = analysis.summary;
-    
+
     // Convert findings to match schema
     review.findings = analysis.findings.map((finding: any) => ({
       file: finding.file || filesWithContent[0]?.name || 'unknown',
@@ -303,7 +303,7 @@ const processPullRequestReview = async (
     // Send completion notification
     try {
       const io = getIO();
-      
+
       io.to(`user_${userId.toString()}`).emit('review-completed', {
         reviewId: review._id,
         pullRequestTitle: review.pullRequestTitle,
@@ -321,11 +321,11 @@ const processPullRequestReview = async (
     // Post review comment to GitHub
     try {
       console.log(`💬 Posting review to GitHub...`);
-      
+
       const markdown = formatReviewAsMarkdown(review);
-      
+
       await postReviewComment(owner, repo, pullNumber, markdown, githubToken);
-      
+
       console.log(`✅ Review posted to GitHub PR #${pullNumber}`);
     } catch (commentError) {
       console.error('❌ Error posting review comment:', commentError);
@@ -337,7 +337,7 @@ const processPullRequestReview = async (
   } catch (error: any) {
     console.error('\n❌ Error processing PR review:', error.message);
     console.error(error.stack);
-    
+
     // Update review status to failed
     try {
       const review = await Review.findById(reviewId).populate('reviewedBy');
