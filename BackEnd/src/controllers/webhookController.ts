@@ -5,6 +5,7 @@ import Repository from '../models/Repository';
 import { getIO } from '../config/socket';
 import { getPullRequestFiles, getFileContent, postReviewComment, formatReviewAsMarkdown } from '../config/github';
 import { analyzeMultipleFiles } from '../config/gemini';
+import { any } from 'zod';
 
 export const handleGitHubWebhook = async (req: Request, res: Response) => {
   try {
@@ -69,10 +70,12 @@ const handlePullRequestEvent = async (payload: any) => {
       return;
     }
 
-    // Find repository in database
+    // Find repository in database - IMPORTANT: Select githubAccessToken
     const dbRepository = await Repository.findOne({ 
       githubRepoId: repository.id 
-    }).populate('connectedBy');
+    })
+    .populate('connectedBy')
+    .select('+githubAccessToken'); // ✅ FIX: Add this to get the token
 
     if (!dbRepository) {
       console.log(`⚠️ Repository not found in database: ${repository.full_name}`);
@@ -81,14 +84,18 @@ const handlePullRequestEvent = async (payload: any) => {
 
     console.log(`✅ Found repository in database: ${dbRepository.name}`);
 
+    // ✅ FIX: Extract user ID properly
+    const connectedByUser = dbRepository.connectedBy as any;
+    const userId = connectedByUser._id || connectedByUser;
+
     // Create review record
-    const newReview = new Review({
+    const newReview = <any> new  Review({
       repositoryId: dbRepository._id,
       pullRequestNumber: pullRequest.number,
       pullRequestTitle: pullRequest.title,
       pullRequestUrl: pullRequest.html_url,
       author: pullRequest.user.login,
-      reviewedBy: dbRepository.connectedBy,
+      reviewedBy: userId, // ✅ FIX: Use extracted userId
       status: 'pending',
     });
 
@@ -99,9 +106,8 @@ const handlePullRequestEvent = async (payload: any) => {
     // Send WebSocket notification
     try {
       const io = getIO();
-      const userId = dbRepository.connectedBy.toString();
       
-      io.to(`user_${userId}`).emit('review-created', {
+      io.to(`user_${userId.toString()}`).emit('review-created', {
         reviewId: newReview._id,
         pullRequestTitle: pullRequest.title,
         pullRequestNumber: pullRequest.number,
@@ -114,9 +120,21 @@ const handlePullRequestEvent = async (payload: any) => {
       console.error('❌ Error sending WebSocket notification:', socketError);
     }
 
+    // ✅ FIX: Check if token exists
+    if (!dbRepository.githubAccessToken) {
+      console.error('❌ No GitHub access token found for repository');
+      const review = await Review.findById(newReview._id);
+      if (review) {
+        review.status = 'failed';
+        review.summary = 'No GitHub access token configured for this repository';
+        await review.save();
+      }
+      return;
+    }
+
     // Process review asynchronously (don't block webhook response)
     processPullRequestReview(
-      newReview.id.toString(),
+      newReview._id.toString(), // ✅ FIX: Use _id instead of id
       repository.owner.login,
       repository.name,
       pullRequest.number,
@@ -160,12 +178,15 @@ const processPullRequestReview = async (
 
     console.log(`⏳ Review status: in_progress`);
 
+    // ✅ FIX: Extract user ID properly
+    const reviewedByUser = review.reviewedBy as any;
+    const userId = reviewedByUser._id || reviewedByUser;
+
     // Send WebSocket update
     try {
       const io = getIO();
-      const userId = review.reviewedBy;
       
-      io.to(`user_${userId}`).emit('review-updated', {
+      io.to(`user_${userId.toString()}`).emit('review-updated', {
         reviewId: review._id,
         status: 'in_progress',
         message: 'AI is analyzing your code...',
@@ -192,8 +213,7 @@ const processPullRequestReview = async (
 
       // Send completion notification
       const io = getIO();
-      const userId = review.reviewedBy;
-      io.to(`user_${userId}`).emit('review-completed', {
+      io.to(`user_${userId.toString()}`).emit('review-completed', {
         reviewId: review._id,
         pullRequestTitle: review.pullRequestTitle,
         issuesFound: 0,
@@ -283,9 +303,8 @@ const processPullRequestReview = async (
     // Send completion notification
     try {
       const io = getIO();
-      const userId = review.reviewedBy;
       
-      io.to(`user_${userId}`).emit('review-completed', {
+      io.to(`user_${userId.toString()}`).emit('review-completed', {
         reviewId: review._id,
         pullRequestTitle: review.pullRequestTitle,
         issuesFound: review.issuesFound,
@@ -327,10 +346,13 @@ const processPullRequestReview = async (
         review.summary = `Review failed: ${error.message}`;
         await review.save();
 
+        // ✅ FIX: Extract user ID properly
+        const reviewedByUser = review.reviewedBy as any;
+        const userId = reviewedByUser._id || reviewedByUser;
+
         // Notify user of failure
         const io = getIO();
-        const userId = review.reviewedBy;
-        io.to(`user_${userId}`).emit('review-updated', {
+        io.to(`user_${userId.toString()}`).emit('review-updated', {
           reviewId: review._id,
           status: 'failed',
           message: 'AI review failed',

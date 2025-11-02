@@ -50,6 +50,7 @@ const RepositorySchema: Schema = new Schema(
         githubAccessToken: {
             type: String,
             required: true,
+            select: false,
         }
     },
     {
