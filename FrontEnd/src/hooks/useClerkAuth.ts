@@ -5,7 +5,7 @@ import { setCredentials, logout, setLoading } from '@/store/slices/authSlice';
 import { authService } from '@/services/authService';
 
 export const useClerkAuth = () => {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useUser(); 
   const { getToken, signOut } = useAuth();
   const dispatch = useAppDispatch();
 
