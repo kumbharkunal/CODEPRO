@@ -7,7 +7,7 @@ function getUserData(userId) {
 
 // Potential null pointer
 function processUser(user) {
-    return user.name.toUpperCase(); // No null check!
+    return user.name.toUpperCase(); // No null check!   
 }
 
 // Hardcoded secret
