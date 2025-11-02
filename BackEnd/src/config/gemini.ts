@@ -39,7 +39,7 @@ Provide a comprehensive code review focusing on:
 For EACH issue found, provide:
 - Specific line number (estimate based on code structure)
 - Severity: "critical" (security/crashes), "high" (bugs), "medium" (quality), "low" (style), "info" (suggestions)
-- Category: "bug", "security", "performance", "style", "best-practice"
+- Category: "bug", "security", "performance", "style", "best-practice", "code-quality"
 - Clear title (max 60 chars)
 - Detailed description
 - Actionable suggestion

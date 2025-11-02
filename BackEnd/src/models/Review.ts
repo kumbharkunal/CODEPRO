@@ -17,7 +17,7 @@ const FindingSchema: Schema = new Schema({
     },
     category: {
         type: String,
-        enum: ['bug', 'security', 'performance', 'style', 'best-practice'],
+        enum: ['bug', 'security', 'performance', 'style', 'best-practice','code-quality'],
         required: true,
     },
     title: {
