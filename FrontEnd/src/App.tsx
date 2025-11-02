@@ -6,6 +6,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { store } from './store/store';
 import { useTheme } from './hooks/useTheme';
 import { useClerkAuth } from './hooks/useClerkAuth';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import PricingPage from './pages/PricingPage';
 
 // Layout
@@ -19,7 +20,7 @@ import DashboardPage from './pages/DashboardPage';
 import ReviewsPage from './pages/ReviewsPage';
 import ReviewDetailPage from './pages/ReviewDetailPage';
 import RepositoriesPage from './pages/RepositoriesPage';
-import GitHubCallbackPage from './pages/GitHubCallbackPage';
+import GitHubCallbackPage from './pages/GithubCallbackPage';
 import ConnectRepositoryPage from './pages/ConnectRepositoryPage';
 import SettingsPage from './pages/SettingsPage';
 import SubscriptionSuccessPage from './pages/SubscriptionSuccessPage';
@@ -36,7 +37,10 @@ function AppContent() {
   if (!isLoaded) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading...</div>
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-lg">Loading...</p>
+        </div>
       </div>
     );
   }
@@ -52,6 +56,18 @@ function AppContent() {
               background: theme === 'dark' ? '#1f2937' : '#ffffff',
               color: theme === 'dark' ? '#f9fafb' : '#111827',
               border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
+            },
+            success: {
+              iconTheme: {
+                primary: '#10b981',
+                secondary: '#ffffff',
+              },
+            },
+            error: {
+              iconTheme: {
+                primary: '#ef4444',
+                secondary: '#ffffff',
+              },
             },
           }}
         />
@@ -128,9 +144,11 @@ function AppContent() {
 
 function App() {
   return (
-    <Provider store={store}>
-      <AppContent />
-    </Provider>
+    <ErrorBoundary>
+      <Provider store={store}>
+        <AppContent />
+      </Provider>
+    </ErrorBoundary>
   );
 }
 

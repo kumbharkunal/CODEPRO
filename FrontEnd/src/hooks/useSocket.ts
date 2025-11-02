@@ -17,11 +17,15 @@ export const useSocket = () => {
     if (!user) return;
 
     // Create socket connection
+    const token = localStorage.getItem('token');
     const socket = io(WS_URL, {
       transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      auth: {
+        token: token
+      }
     });
 
     socketRef.current = socket;
@@ -30,7 +34,7 @@ export const useSocket = () => {
     socket.on('connect', () => {
       console.log('WebSocket connected:', socket.id);
       setIsConnected(true);
-      
+
       // Join user's room
       socket.emit('join-room', `user_${user.id}`);
     });
@@ -48,23 +52,23 @@ export const useSocket = () => {
     // Review events
     socket.on('review-created', (data) => {
       console.log('Review created:', data);
-      
+
       // Show toast notification
       toast.success(`New review created for PR #${data.pullRequestNumber}`);
-      
+
       // Note: We'll fetch the full review from API
       // WebSocket just notifies, then we fetch latest data
     });
 
     socket.on('review-updated', (data) => {
       console.log('Review updated:', data);
-      
+
       toast(data.message || 'Review status updated');
     });
 
     socket.on('review-completed', (data) => {
       console.log('Review completed:', data);
-      
+
       toast.success(
         `Review complete! Found ${data.issuesFound} issues. Quality score: ${data.qualityScore}/100`,
         { duration: 5000 }

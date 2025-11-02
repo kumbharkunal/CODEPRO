@@ -19,7 +19,11 @@ export const useClerkAuth = () => {
       if (user) {
         try {
           // Get Clerk session token
-          const token = await getToken();
+          const token = await getToken({ skipCache: true });
+          if (!token) {
+            console.error('No token available');
+            return;
+          }
 
           // Sync with our backend
           const response = await authService.syncClerkUser({

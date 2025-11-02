@@ -5,6 +5,12 @@ interface User {
   email: string;
   name: string;
   role: 'admin' | 'developer' | 'viewer';
+  profileImage?: string;
+  subscription?: {
+    plan: 'free' | 'pro' | 'enterprise';
+    status: string;
+    stripeCustomerId?: string;
+  };
 }
 
 interface AuthState {
