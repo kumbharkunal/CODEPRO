@@ -5,7 +5,7 @@ function getUserData(userId) {
     return database.query(query);
 }
 
-// Potential null pointer
+// Potential null pointer     
 function processUser(user) {
     return user.name.toUpperCase(); // No null check!   
 }
