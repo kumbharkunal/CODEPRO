@@ -18,10 +18,10 @@ export const handleGitHubWebhook = async (req: Request, res: Response) => {
     }
 
     // Verify signature
-    const payload = req.body.toString();
+    const payloadString = req.body.toString();
     const secret = process.env.GITHUB_WEBHOOK_SECRET as string;
 
-    const isValid = verifyGitHubSignature(payload, signature, secret);
+    const isValid = verifyGitHubSignature(payloadString, signature, secret);
 
     if (!isValid) {
       console.error('Invalid webhook signature');
@@ -33,10 +33,12 @@ export const handleGitHubWebhook = async (req: Request, res: Response) => {
 
     console.log(`✅ GitHub webhook received: ${event}`);
 
+    const payloadObject = JSON.parse(payloadString);
+
     // Handle different events
     switch (event) {
       case 'pull_request':
-        await handlePullRequestEvent(req.body);
+        await handlePullRequestEvent(payloadObject);
         break;
 
       case 'ping':
