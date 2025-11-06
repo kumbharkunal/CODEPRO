@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { reviewService } from '@/services/reviewService';
-import { useSocket } from '@/hooks/useSocket';
+import { useSocketContext } from '../contexts/SocketContext';
 import { ReviewStats } from '@/types';
 import { AlertCircle, CheckCircle, Clock, TrendingUp, Activity, GitPullRequest, FileCode, Zap } from 'lucide-react';
+
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<ReviewStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const { isConnected } = useSocket();
+  const { isConnected } = useSocketContext();
 
   useEffect(() => {
     fetchStats();

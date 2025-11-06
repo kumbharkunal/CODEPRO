@@ -1,48 +1,48 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth, useClerk } from '@clerk/clerk-react';
+import { useAuth } from '@clerk/clerk-react';
 import { Loader2 } from 'lucide-react';
 
 export default function SSOCallbackPage() {
   const navigate = useNavigate();
   const { isLoaded, isSignedIn } = useAuth();
-  const { handleRedirectCallback } = useClerk();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const handleCallback = async () => {
-      try {
-        // Handle the OAuth callback
-        await handleRedirectCallback();
+      if (!isLoaded) return;
+
+      // Wait for Clerk to fully process the OAuth callback
+      // The redirect is handled automatically by Clerk
+      let attempts = 0;
+      const maxAttempts = 20; // 10 seconds total
+      
+      const checkSignIn = setInterval(() => {
+        attempts++;
         
-        // Wait a bit for Clerk to fully process the sign-in
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Check if signed in after callback
-        if (isLoaded && isSignedIn) {
+        if (isSignedIn) {
+          clearInterval(checkSignIn);
           console.log('✅ OAuth sign-in successful, redirecting to dashboard');
           navigate('/dashboard', { replace: true });
-        } else if (isLoaded && !isSignedIn) {
-          console.error('❌ OAuth callback completed but user not signed in');
-          setError('Authentication failed. Please try again.');
+        } else if (attempts >= maxAttempts) {
+          clearInterval(checkSignIn);
+          console.error('❌ OAuth callback timeout - user not signed in after 10 seconds');
+          setError('Authentication is taking longer than expected. Please try again.');
           setTimeout(() => navigate('/login', { replace: true }), 2000);
         }
-      } catch (err: any) {
-        console.error('OAuth callback error:', err);
-        setError('Authentication failed. Please try again.');
-        setTimeout(() => navigate('/login', { replace: true }), 2000);
-      }
+      }, 500);
+
+      // Cleanup interval on unmount
+      return () => clearInterval(checkSignIn);
     };
 
-    if (isLoaded) {
-      handleCallback();
-    }
-  }, [isLoaded, isSignedIn, navigate, handleRedirectCallback]);
+    handleCallback();
+  }, [isLoaded, isSignedIn, navigate]);
 
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-white">
-        <div className="text-center">
+        <div className="text-center max-w-md px-4">
           <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

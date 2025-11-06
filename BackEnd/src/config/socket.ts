@@ -13,21 +13,32 @@ export const initializeSocket = (httpServer: HTTPServer) => {
     });
 
     io.on('connection', (socket) => {
-        console.log('Client connected:', socket.id);
+        console.log('✅ Client connected:', socket.id);
 
         socket.on('join-room', (roomId: string) => {
             socket.join(roomId);
-            console.log(`✅ Client ${socket.id} joined room: ${roomId}`);
-            console.log(`📊 Room ${roomId} now has ${io.sockets.adapter.rooms.get(roomId)?.size} members`);
+            console.log(`🚪 Client ${socket.id} joined room: ${roomId}`);
+            
+            // Get the number of clients in this room
+            const room = io.sockets.adapter.rooms.get(roomId);
+            const clientCount = room ? room.size : 0;
+            console.log(`📊 Room "${roomId}" now has ${clientCount} client(s)`);
+            
+            // Send confirmation back to client
+            socket.emit('room-joined', { 
+                roomId, 
+                socketId: socket.id,
+                success: true 
+            });
         });
 
         socket.on('leave-room', (roomId: string) => {
             socket.leave(roomId);
-            console.log(`Client ${socket.id} left room: ${roomId}`);
+            console.log(`🚪 Client ${socket.id} left room: ${roomId}`);
         });
 
         socket.on('disconnect', () => {
-            console.log('Client disconnected:', socket.id);
+            console.log('❌ Client disconnected:', socket.id);
         });
     });
 

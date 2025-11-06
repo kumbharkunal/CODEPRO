@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { addReview, updateReview } from '@/store/slices/reviewSlice';
+import { addReview, updateReview } from '../store/slices/reviewSlice';
 import toast from 'react-hot-toast';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:5000';
+const isDev = import.meta.env.DEV;
 
 export const useSocket = () => {
   const dispatch = useAppDispatch();
@@ -14,12 +15,15 @@ export const useSocket = () => {
 
   useEffect(() => {
     // Only connect if user is authenticated
-    if (!user) return;
+    if (!user) {
+      return;
+    }
 
     // Create socket connection
     const token = localStorage.getItem('token');
+
     const socket = io(WS_URL, {
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -32,66 +36,72 @@ export const useSocket = () => {
 
     // Connection events
     socket.on('connect', () => {
-      console.log('WebSocket connected:', socket.id);
+      if (isDev) console.log('WebSocket connected');
       setIsConnected(true);
 
-      // 🔥 FIX 3: Join user's room - make sure user.id or user._id matches backend
-      const userId = user._id || user.id;
-      console.log(`Joining room: user_${userId}`);
+      // Join user's room
+      const userId = user._id || user.id || user.clerkId;
       socket.emit('join-room', `user_${userId}`);
     });
 
-    socket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
+    socket.on('disconnect', (reason) => {
+      if (isDev) console.log('WebSocket disconnected:', reason);
       setIsConnected(false);
     });
 
     socket.on('connect_error', (error) => {
-      console.error('WebSocket connection error:', error);
+      console.error('WebSocket connection error:', error.message);
       setIsConnected(false);
+    });
+
+    socket.on('room-joined', (data) => {
+      if (isDev) console.log('Joined room:', data.roomId);
     });
 
     // Review events
     socket.on('review-created', (data) => {
-      console.log('✅ WebSocket: Review created event received:', data);
+      if (isDev) console.log('Review created:', data);
 
-      // Show toast notification
-      toast.success(`New review created for PR #${data.pullRequestNumber}`);
+      toast.success(`New review created for PR #${data.pullRequestNumber}`, {
+        duration: 4000,
+        icon: '🎉',
+      });
 
-      // 🔥 Optionally dispatch to Redux store
-      // dispatch(addReview(data));
-
-      // You can trigger a refetch here if needed
       window.dispatchEvent(new CustomEvent('review-created', { detail: data }));
     });
 
     socket.on('review-updated', (data) => {
-      console.log('✅ WebSocket: Review updated event received:', data);
+      if (isDev) console.log('Review updated:', data);
+
+      const icon = data.status === 'in_progress' ? '⚙️' : 
+                   data.status === 'completed' ? '✅' : 
+                   data.status === 'failed' ? '❌' : '📝';
 
       toast(data.message || 'Review status updated', {
-        icon: data.status === 'in_progress' ? '⚙️' : '📝',
+        icon: icon,
+        duration: 3000,
       });
 
-      // Trigger refetch
       window.dispatchEvent(new CustomEvent('review-updated', { detail: data }));
     });
 
     socket.on('review-completed', (data) => {
-      console.log('✅ WebSocket: Review completed event received:', data);
+      if (isDev) console.log('Review completed:', data);
 
       toast.success(
         `Review complete! Found ${data.issuesFound} issues. Quality score: ${data.qualityScore}/100`,
-        { duration: 5000 }
+        { 
+          duration: 6000,
+        }
       );
 
-      // Trigger refetch
       window.dispatchEvent(new CustomEvent('review-completed', { detail: data }));
     });
 
     // Cleanup on unmount
     return () => {
       if (socket) {
-        const userId = user.id;
+        const userId = user._id || user.id || user.clerkId;
         socket.emit('leave-room', `user_${userId}`);
         socket.disconnect();
       }

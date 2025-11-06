@@ -6,6 +6,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { store } from './store/store';
 import { useTheme } from './hooks/useTheme';
 import { useClerkAuth } from './hooks/useClerkAuth';
+import { SocketProvider } from './contexts/SocketContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import PricingPage from './pages/PricingPage';
 
@@ -131,33 +132,35 @@ function AppContent() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-background text-foreground">
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 3000,
-            style: {
-              background: theme === 'dark' ? '#1f2937' : '#ffffff',
-              color: theme === 'dark' ? '#f9fafb' : '#111827',
-              border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
-            },
-            success: {
-              iconTheme: {
-                primary: '#10b981',
-                secondary: '#ffffff',
+      <SocketProvider>
+        <div className="min-h-screen bg-background text-foreground">
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 3000,
+              style: {
+                background: theme === 'dark' ? '#1f2937' : '#ffffff',
+                color: theme === 'dark' ? '#f9fafb' : '#111827',
+                border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
               },
-            },
-            error: {
-              iconTheme: {
-                primary: '#ef4444',
-                secondary: '#ffffff',
+              success: {
+                iconTheme: {
+                  primary: '#10b981',
+                  secondary: '#ffffff',
+                },
               },
-            },
-          }}
-        />
+              error: {
+                iconTheme: {
+                  primary: '#ef4444',
+                  secondary: '#ffffff',
+                },
+              },
+            }}
+          />
 
-        <AppContentInner />
-      </div>
+          <AppContentInner />
+        </div>
+      </SocketProvider>
     </Router>
   );
 }

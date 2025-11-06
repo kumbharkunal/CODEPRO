@@ -32,8 +32,14 @@ const httpServer = http.createServer(app);
 // Inititalize Socket.io
 initializeSocket(httpServer);
 
-// Security headers
-app.use(helmet());
+// Security headers with Clerk-compatible CSP
+app.use(
+    helmet({
+        contentSecurityPolicy: false, // Disable CSP from backend to avoid conflicts with frontend
+        crossOriginEmbedderPolicy: false, // Required for Clerk
+        crossOriginResourcePolicy: { policy: "cross-origin" }, // Required for Clerk
+    })
+);
 
 // Request logging
 if (process.env.NODE_ENV === 'development') {

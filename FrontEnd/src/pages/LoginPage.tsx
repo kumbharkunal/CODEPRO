@@ -1,6 +1,6 @@
 import { useSignIn, useSignUp, useUser } from '@clerk/clerk-react';
 import { Navigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Code2, Mail, Eye, EyeOff, Loader2, Github, GitBranch, CheckCircle, MessageSquare, Zap } from 'lucide-react';
 
 export default function LoginPage() {
@@ -18,6 +18,23 @@ export default function LoginPage() {
   const [resetCode, setResetCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [resetStep, setResetStep] = useState<'email' | 'code' | 'success'>('email');
+
+  // Add CAPTCHA div on mount
+  useEffect(() => {
+    if (!document.getElementById('clerk-captcha')) {
+      const captchaDiv = document.createElement('div');
+      captchaDiv.id = 'clerk-captcha';
+      captchaDiv.style.display = 'none';
+      document.body.appendChild(captchaDiv);
+    }
+
+    return () => {
+      const captchaDiv = document.getElementById('clerk-captcha');
+      if (captchaDiv && captchaDiv.parentElement === document.body) {
+        document.body.removeChild(captchaDiv);
+      }
+    };
+  }, []);
 
   if (isSignedIn) {
     return <Navigate to="/dashboard" replace />;
@@ -53,6 +70,7 @@ export default function LoginPage() {
         }
       }
     } catch (err: any) {
+      console.error('Email auth error:', err);
       setError(err?.errors?.[0]?.message || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
@@ -64,10 +82,15 @@ export default function LoginPage() {
     setError('');
     
     try {
+      const redirectUrl = window.location.origin + '/sso-callback';
+      const redirectUrlComplete = window.location.origin + '/dashboard';
+      
+      console.log('Starting Google OAuth with:', { redirectUrl, redirectUrlComplete });
+      
       await signIn?.authenticateWithRedirect({
         strategy: 'oauth_google',
-        redirectUrl: `${window.location.origin}/sso-callback`,
-        redirectUrlComplete: `${window.location.origin}/dashboard`,
+        redirectUrl,
+        redirectUrlComplete,
       });
     } catch (err: any) {
       console.error('Google auth error:', err);
@@ -81,10 +104,15 @@ export default function LoginPage() {
     setError('');
     
     try {
+      const redirectUrl = window.location.origin + '/sso-callback';
+      const redirectUrlComplete = window.location.origin + '/dashboard';
+      
+      console.log('Starting GitHub OAuth with:', { redirectUrl, redirectUrlComplete });
+      
       await signIn?.authenticateWithRedirect({
         strategy: 'oauth_github',
-        redirectUrl: `${window.location.origin}/sso-callback`,
-        redirectUrlComplete: `${window.location.origin}/dashboard`,
+        redirectUrl,
+        redirectUrlComplete,
       });
     } catch (err: any) {
       console.error('GitHub auth error:', err);
@@ -259,9 +287,6 @@ export default function LoginPage() {
         </div>
 
         <div className="w-full max-w-md pt-20 lg:pt-0">
-          {/* CAPTCHA Container */}
-          <div id="clerk-captcha" className="hidden"></div>
-
           <div className="text-center mb-8">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
               {isSignUp ? 'Create an Account' : 'Welcome Back'}
