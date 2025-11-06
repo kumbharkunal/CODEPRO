@@ -27,6 +27,25 @@ export const createReview = async (req: Request, res: Response) => {
 
     await newReview.save();
 
+    // 🔥 FIX 1: Send WebSocket notification when review is created
+    try {
+      const io = getIO();
+      const userId = reviewedBy.toString(); // Ensure it's a string
+      
+      io.to(`user_${userId}`).emit('review-created', {
+        reviewId: newReview._id,
+        pullRequestNumber: newReview.pullRequestNumber,
+        pullRequestTitle: newReview.pullRequestTitle,
+        status: 'pending',
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log(`WebSocket: review-created sent to user_${userId}`);
+    } catch (socketError) {
+      console.error('Error sending WebSocket notification:', socketError);
+      // Don't fail the request if WebSocket fails
+    }
+
     res.status(201).json({
       message: 'Review created successfully',
       review: newReview,
@@ -92,7 +111,7 @@ export const updateReview = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { status, filesAnalyzed, issuesFound, findings, summary, qualityScore } = req.body;
 
-    const review = await Review.findById(id).populate('reviewedBy', 'name email');
+    const review = await Review.findById(id);
 
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
@@ -115,7 +134,10 @@ export const updateReview = async (req: Request, res: Response) => {
     if (status && status !== oldStatus) {
       try {
         const io = getIO();
-        const userId = review.reviewedBy;
+        // 🔥 FIX 2: Use ._id or .toString() to get the actual ID
+        const userId = review.reviewedBy.toString();
+
+        console.log(`Sending WebSocket to user_${userId}, status: ${status}`);
 
         // Send to user's room
         io.to(`user_${userId}`).emit('review-updated', {
@@ -143,6 +165,10 @@ export const updateReview = async (req: Request, res: Response) => {
         // Don't fail the request if WebSocket fails
       }
     }
+
+    // Populate before sending response
+    await review.populate('reviewedBy', 'name email');
+    await review.populate('repositoryId', 'name fullName');
 
     res.status(200).json({
       message: 'Review updated successfully',
@@ -216,6 +242,9 @@ export const triggerAIReview = async (reviewId: string, files: { name: string; c
     // Send WebSocket notification
     const io = getIO();
     const userId = review.reviewedBy.toString();
+    
+    console.log(`Sending in_progress notification to user_${userId}`);
+    
     io.to(`user_${userId}`).emit('review-updated', {
       reviewId: review._id,
       status: 'in_progress',
@@ -248,6 +277,8 @@ export const triggerAIReview = async (reviewId: string, files: { name: string; c
     await review.save();
 
     // Send completion notification
+    console.log(`Sending completed notification to user_${userId}`);
+    
     io.to(`user_${userId}`).emit('review-completed', {
       reviewId: review._id,
       pullRequestTitle: review.pullRequestTitle,
