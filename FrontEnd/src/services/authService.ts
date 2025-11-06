@@ -9,8 +9,14 @@ export interface SyncClerkUserData {
 
 export const authService = {
   // Sync Clerk user with backend
-  syncClerkUser: async (data: SyncClerkUserData) => {
-    const response = await api.post('/clerk/sync', data);
+  // token is optional - if provided, will be used for auth instead of localStorage token
+  syncClerkUser: async (data: SyncClerkUserData, token?: string) => {
+    const config = token ? {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    } : {};
+    const response = await api.post('/clerk/sync', data, config);
     return response.data;
   },
 

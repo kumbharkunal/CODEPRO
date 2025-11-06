@@ -10,6 +10,9 @@ const api = axios.create({
   },
 });
 
+// Track if we're already redirecting to prevent multiple redirects
+let isRedirecting = false;
+
 // Request interceptor - Add token to all requests
 api.interceptors.request.use(
   (config) => {
@@ -28,13 +31,24 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    let isRedirecting = false;
+    // Handle 401 errors (unauthorized)
     if (error.response?.status === 401 && !isRedirecting) {
       isRedirecting = true;
-      // Unauthorized - clear token and redirect to login
+      
+      // Clear token
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      
+      // Only redirect if we're not already on the login page
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+      }
+      
+      // Reset the flag after a short delay
+      setTimeout(() => {
+        isRedirecting = false;
+      }, 1000);
     }
+    
     return Promise.reject(error);
   }
 );
