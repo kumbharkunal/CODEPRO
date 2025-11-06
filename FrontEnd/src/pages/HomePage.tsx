@@ -15,7 +15,7 @@ export default function HomePage() {
 
       {/* Hero Section */}
       <motion.section
-        className="container mx-auto px-4 py-20 lg:py-32 text-center relative"
+        className="container mx-auto px-4 py-20 lg:py-12 text-center relative"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
@@ -113,7 +113,7 @@ export default function HomePage() {
       </motion.section>
 
       {/* Features Section */}
-      <section id="features" className="container mx-auto px-4 py-20 lg:py-32">
+      <section id="features" className="container mx-auto px-4 py-20 lg:py-15">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -183,7 +183,7 @@ export default function HomePage() {
       </section>
 
       {/* Stats Section */}
-      <section className="container mx-auto px-4 py-20 lg:py-32">
+      <section className="container mx-auto px-4 py-20 lg:py-20">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -211,7 +211,7 @@ export default function HomePage() {
       </section>
 
       {/* CTA Section */}
-      <section className="container mx-auto px-4 py-20 lg:py-32">
+      <section className="container mx-auto px-4 py-20 lg:py-10">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           whileInView={{ opacity: 1, scale: 1 }}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-// import { addReview, updateReview } from '@/store/slices/reviewSlice';
+import { addReview, updateReview } from '@/store/slices/reviewSlice';
 import toast from 'react-hot-toast';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:5000';
@@ -35,8 +35,10 @@ export const useSocket = () => {
       console.log('WebSocket connected:', socket.id);
       setIsConnected(true);
 
-      // Join user's room
-      socket.emit('join-room', `user_${user.id}`);
+      // 🔥 FIX 3: Join user's room - make sure user.id or user._id matches backend
+      const userId = user._id || user.id;
+      console.log(`Joining room: user_${userId}`);
+      socket.emit('join-room', `user_${userId}`);
     });
 
     socket.on('disconnect', () => {
@@ -51,34 +53,46 @@ export const useSocket = () => {
 
     // Review events
     socket.on('review-created', (data) => {
-      console.log('Review created:', data);
+      console.log('✅ WebSocket: Review created event received:', data);
 
       // Show toast notification
       toast.success(`New review created for PR #${data.pullRequestNumber}`);
 
-      // Note: We'll fetch the full review from API
-      // WebSocket just notifies, then we fetch latest data
+      // 🔥 Optionally dispatch to Redux store
+      // dispatch(addReview(data));
+
+      // You can trigger a refetch here if needed
+      window.dispatchEvent(new CustomEvent('review-created', { detail: data }));
     });
 
     socket.on('review-updated', (data) => {
-      console.log('Review updated:', data);
+      console.log('✅ WebSocket: Review updated event received:', data);
 
-      toast(data.message || 'Review status updated');
+      toast(data.message || 'Review status updated', {
+        icon: data.status === 'in_progress' ? '⚙️' : '📝',
+      });
+
+      // Trigger refetch
+      window.dispatchEvent(new CustomEvent('review-updated', { detail: data }));
     });
 
     socket.on('review-completed', (data) => {
-      console.log('Review completed:', data);
+      console.log('✅ WebSocket: Review completed event received:', data);
 
       toast.success(
         `Review complete! Found ${data.issuesFound} issues. Quality score: ${data.qualityScore}/100`,
         { duration: 5000 }
       );
+
+      // Trigger refetch
+      window.dispatchEvent(new CustomEvent('review-completed', { detail: data }));
     });
 
     // Cleanup on unmount
     return () => {
       if (socket) {
-        socket.emit('leave-room', `user_${user.id}`);
+        const userId = user.id;
+        socket.emit('leave-room', `user_${userId}`);
         socket.disconnect();
       }
     };

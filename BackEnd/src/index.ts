@@ -51,7 +51,7 @@ app.use(express.json());
 
 // CORS CONFIGURATION
 const corsOptions = {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: process.env.FRONTEND_URL || 'http://localhost:4000',
     credentials: true,
 }
 app.use(cors(corsOptions));

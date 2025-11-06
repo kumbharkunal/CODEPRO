@@ -6,7 +6,7 @@ let io: SocketIOServer;
 export const initializeSocket = (httpServer: HTTPServer) => {
     io = new SocketIOServer(httpServer, {
         cors: {
-            origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+            origin: process.env.FRONTEND_URL || 'http://localhost:4000',
             methods: ['GET', 'POST'],
             credentials: true,
         },
@@ -17,7 +17,8 @@ export const initializeSocket = (httpServer: HTTPServer) => {
 
         socket.on('join-room', (roomId: string) => {
             socket.join(roomId);
-            console.log(`Client ${socket.id} joined room: ${roomId}`);
+            console.log(`✅ Client ${socket.id} joined room: ${roomId}`);
+            console.log(`📊 Room ${roomId} now has ${io.sockets.adapter.rooms.get(roomId)?.size} members`);
         });
 
         socket.on('leave-room', (roomId: string) => {

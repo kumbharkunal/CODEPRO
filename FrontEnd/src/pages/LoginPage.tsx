@@ -49,7 +49,6 @@ export default function LoginPage() {
         if (result?.status === 'complete') {
           await setActiveSignUp?.({ session: result.createdSessionId });
         } else if (result?.status === 'missing_requirements') {
-          // Handle email verification if required
           await signUp?.prepareEmailAddressVerification({ strategy: 'email_code' });
         }
       }
@@ -62,28 +61,34 @@ export default function LoginPage() {
 
   const handleGoogleAuth = async () => {
     setLoading(true);
+    setError('');
+    
     try {
       await signIn?.authenticateWithRedirect({
         strategy: 'oauth_google',
-        redirectUrl: '/sso-callback',
-        redirectUrlComplete: '/dashboard',
+        redirectUrl: `${window.location.origin}/sso-callback`,
+        redirectUrlComplete: `${window.location.origin}/dashboard`,
       });
-    } catch (err) {
-      setError('Failed to connect with Google');
+    } catch (err: any) {
+      console.error('Google auth error:', err);
+      setError('Failed to connect with Google. Please try again.');
       setLoading(false);
     }
   };
 
   const handleGithubAuth = async () => {
     setLoading(true);
+    setError('');
+    
     try {
       await signIn?.authenticateWithRedirect({
         strategy: 'oauth_github',
-        redirectUrl: '/sso-callback',
-        redirectUrlComplete: '/dashboard',
+        redirectUrl: `${window.location.origin}/sso-callback`,
+        redirectUrlComplete: `${window.location.origin}/dashboard`,
       });
-    } catch (err) {
-      setError('Failed to connect with GitHub');
+    } catch (err: any) {
+      console.error('GitHub auth error:', err);
+      setError('Failed to connect with GitHub. Please try again.');
       setLoading(false);
     }
   };
@@ -151,13 +156,11 @@ export default function LoginPage() {
     <div className="h-screen w-full flex overflow-hidden bg-white">
       {/* Left Panel - Minimal Illustration */}
       <div className="hidden lg:flex lg:w-1/2 relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-12 flex-col justify-between overflow-hidden">
-        {/* Subtle background grid */}
         <div className="absolute inset-0 opacity-5" style={{
           backgroundImage: 'linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px)',
           backgroundSize: '50px 50px'
         }}></div>
 
-        {/* Logo and branding */}
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-8">
             <div className="w-12 h-12 bg-indigo-500/20 backdrop-blur-xl rounded-xl flex items-center justify-center border border-indigo-500/30">
@@ -178,13 +181,10 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Central minimal illustration */}
         <div className="relative z-10 flex items-center justify-center flex-1 my-8">
           <div className="relative w-full max-w-lg">
-            {/* Main PR card */}
             <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50 shadow-2xl">
               <div className="space-y-5">
-                {/* PR Header */}
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 bg-indigo-500/20 rounded-lg flex items-center justify-center">
                     <GitBranch className="w-5 h-5 text-indigo-400" />
@@ -198,7 +198,6 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {/* Code diff preview */}
                 <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30 font-mono text-xs space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-red-400">-</span>
@@ -210,7 +209,6 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {/* AI Comment */}
                 <div className="flex items-start gap-3 bg-indigo-500/10 rounded-lg p-4 border border-indigo-500/20">
                   <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
                     <Zap className="w-4 h-4 text-white" />
@@ -227,7 +225,6 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {/* Review stats */}
                 <div className="flex items-center gap-4 pt-2">
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-green-400" />
@@ -243,7 +240,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Bottom text */}
         <div className="relative z-10">
           <p className="text-slate-400 text-sm">
             Join developers using AI to improve their code quality and ship faster.
@@ -253,7 +249,6 @@ export default function LoginPage() {
 
       {/* Right Panel - Auth Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 bg-white relative">
-        {/* Mobile logo */}
         <div className="absolute top-6 left-6 lg:hidden">
           <div className="flex items-center gap-2">
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center">
@@ -264,10 +259,9 @@ export default function LoginPage() {
         </div>
 
         <div className="w-full max-w-md pt-20 lg:pt-0">
-          {/* CAPTCHA Container - CRITICAL FIX */}
+          {/* CAPTCHA Container */}
           <div id="clerk-captcha" className="hidden"></div>
 
-          {/* Header */}
           <div className="text-center mb-8">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
               {isSignUp ? 'Create an Account' : 'Welcome Back'}
@@ -279,7 +273,6 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Form */}
           {!forgotPasswordMode ? (
             <form onSubmit={handleEmailAuth} className="space-y-4 mb-6">
               {isSignUp && (
@@ -378,7 +371,6 @@ export default function LoginPage() {
               </button>
             </form>
           ) : (
-            /* FORGOT PASSWORD FORM */
             <div className="space-y-4 mb-6">
               {resetStep === 'code' && (
                 <form onSubmit={handleResetPassword} className="space-y-4">
@@ -480,10 +472,8 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Only show divider and OAuth if not in forgot password mode */}
           {!forgotPasswordMode && (
             <>
-              {/* Divider */}
               <div className="relative mb-6">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-gray-200"></div>
@@ -493,7 +483,6 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Social Auth Buttons */}
               <div className="space-y-3 mb-6">
                 <button
                   onClick={handleGithubAuth}
@@ -518,7 +507,6 @@ export default function LoginPage() {
                 </button>
               </div>
 
-              {/* Toggle Sign Up/Sign In */}
               <div className="text-center">
                 <p className="text-sm text-gray-600">
                   {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}

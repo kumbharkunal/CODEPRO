@@ -15,6 +15,34 @@ export default function DashboardPage() {
     fetchStats();
   }, []);
 
+  // 🔥 FIX 4: Listen to custom events dispatched by useSocket
+  useEffect(() => {
+    const handleReviewCreated = () => {
+      console.log('Dashboard: Refetching stats after review-created');
+      fetchStats();
+    };
+
+    const handleReviewUpdated = () => {
+      console.log('Dashboard: Refetching stats after review-updated');
+      fetchStats();
+    };
+
+    const handleReviewCompleted = () => {
+      console.log('Dashboard: Refetching stats after review-completed');
+      fetchStats();
+    };
+
+    window.addEventListener('review-created', handleReviewCreated);
+    window.addEventListener('review-updated', handleReviewUpdated);
+    window.addEventListener('review-completed', handleReviewCompleted);
+
+    return () => {
+      window.removeEventListener('review-created', handleReviewCreated);
+      window.removeEventListener('review-updated', handleReviewUpdated);
+      window.removeEventListener('review-completed', handleReviewCompleted);
+    };
+  }, []);
+
   const fetchStats = async () => {
     try {
       const data = await reviewService.getReviewStats();
