@@ -8,14 +8,13 @@ import { useTheme } from './hooks/useTheme';
 import { useClerkAuth } from './hooks/useClerkAuth';
 import { SocketProvider } from './contexts/SocketContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import ScrollToTop from './components/ScrollToTop';
 import PricingPage from './pages/PricingPage';
 
-// Layout
 import Layout from './components/layout/Layout';
 import DefaultLayout from './components/layout/DefaultLayout';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
-// Pages
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -27,76 +26,28 @@ import ConnectRepositoryPage from './pages/ConnectRepositoryPage';
 import SettingsPage from './pages/SettingsPage';
 import SubscriptionSuccessPage from './pages/SubscriptionSuccessPage';
 import NotFoundPage from './pages/NotFoundPage';
-import SSOCallbackPage from './pages/SSOCallbackPage';
 
 function AppContentInner() {
   return (
     <Routes>
-      {/* Routes without chrome */}
       <Route path="/login" element={<LoginPageWrapper />} />
-      <Route path="/sso-callback" element={<SSOCallbackPage />} />
       <Route path="/subscription/success" element={<SubscriptionSuccessPage />} />
 
-      {/* Routes with chrome via DefaultLayout */}
       <Route element={<DefaultLayout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/pricing" element={<PricingPage />} />
 
-        {/* App section still uses existing Layout wrapper */}
         <Route element={<Layout />}>
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/reviews"
-            element={
-              <ProtectedRoute>
-                <ReviewsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/reviews/:id"
-            element={
-              <ProtectedRoute>
-                <ReviewDetailPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/repositories"
-            element={
-              <ProtectedRoute>
-                <RepositoriesPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute>
-                <SettingsPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+          <Route path="/reviews" element={<ProtectedRoute><ReviewsPage /></ProtectedRoute>} />
+          <Route path="/reviews/:id" element={<ProtectedRoute><ReviewDetailPage /></ProtectedRoute>} />
+          <Route path="/repositories" element={<ProtectedRoute><RepositoriesPage /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/auth/github/callback" element={<GitHubCallbackPage />} />
-          <Route
-            path="/repositories/connect"
-            element={
-              <ProtectedRoute>
-                <ConnectRepositoryPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/repositories/connect" element={<ProtectedRoute><ConnectRepositoryPage /></ProtectedRoute>} />
         </Route>
       </Route>
 
-      {/* 404 - Must be last */}
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
@@ -113,7 +64,7 @@ function LoginPageWrapper() {
 function AppContent() {
   const { theme } = useTheme();
   const { isLoaded } = useAuth();
-  useClerkAuth(); // Sync Clerk with our backend
+  useClerkAuth();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -132,6 +83,7 @@ function AppContent() {
 
   return (
     <Router>
+      <ScrollToTop />
       <SocketProvider>
         <div className="min-h-screen bg-background text-foreground">
           <Toaster
@@ -157,7 +109,6 @@ function AppContent() {
               },
             }}
           />
-
           <AppContentInner />
         </div>
       </SocketProvider>
