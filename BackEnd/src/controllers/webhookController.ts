@@ -108,8 +108,14 @@ const handlePullRequestEvent = async (payload: any) => {
     // Send WebSocket notification
     try {
       const io = getIO();
+      const roomId = `user_${userId.toString()}`;
+      
+      // Check if there are any clients in the room
+      const room = io.sockets.adapter.rooms.get(roomId);
+      const clientCount = room ? room.size : 0;
+      console.log(`📊 Sending notification to room "${roomId}" with ${clientCount} client(s)`);
 
-      io.to(`user_${userId.toString()}`).emit('review-created', {
+      io.to(roomId).emit('review-created', {
         reviewId: newReview._id,
         pullRequestTitle: pullRequest.title,
         pullRequestNumber: pullRequest.number,
@@ -117,7 +123,11 @@ const handlePullRequestEvent = async (payload: any) => {
         timestamp: new Date().toISOString(),
       });
 
-      console.log(`✅ WebSocket notification sent for new review`);
+      console.log(`✅ WebSocket notification sent for new review to ${clientCount} client(s)`);
+      
+      if (clientCount === 0) {
+        console.warn(`⚠️ WARNING: No clients connected in room ${roomId}. User may not receive notification.`);
+      }
     } catch (socketError) {
       console.error('❌ Error sending WebSocket notification:', socketError);
     }
@@ -187,13 +197,22 @@ const processPullRequestReview = async (
     // Send WebSocket update
     try {
       const io = getIO();
+      const roomId = `user_${userId.toString()}`;
+      
+      const room = io.sockets.adapter.rooms.get(roomId);
+      const clientCount = room ? room.size : 0;
+      console.log(`📊 Sending in_progress update to room "${roomId}" with ${clientCount} client(s)`);
 
-      io.to(`user_${userId.toString()}`).emit('review-updated', {
+      io.to(roomId).emit('review-updated', {
         reviewId: review._id,
         status: 'in_progress',
         message: 'AI is analyzing your code...',
         timestamp: new Date().toISOString(),
       });
+      
+      if (clientCount === 0) {
+        console.warn(`⚠️ WARNING: No clients connected in room ${roomId}`);
+      }
     } catch (socketError) {
       console.error('❌ Error sending WebSocket update:', socketError);
     }
@@ -305,8 +324,13 @@ const processPullRequestReview = async (
     // Send completion notification
     try {
       const io = getIO();
+      const roomId = `user_${userId.toString()}`;
+      
+      const room = io.sockets.adapter.rooms.get(roomId);
+      const clientCount = room ? room.size : 0;
+      console.log(`📊 Sending completion notification to room "${roomId}" with ${clientCount} client(s)`);
 
-      io.to(`user_${userId.toString()}`).emit('review-completed', {
+      io.to(roomId).emit('review-completed', {
         reviewId: review._id,
         pullRequestTitle: review.pullRequestTitle,
         issuesFound: review.issuesFound,
@@ -315,7 +339,11 @@ const processPullRequestReview = async (
         timestamp: new Date().toISOString(),
       });
 
-      console.log(`✅ Completion notification sent`);
+      console.log(`✅ Completion notification sent to ${clientCount} client(s)`);
+      
+      if (clientCount === 0) {
+        console.warn(`⚠️ WARNING: No clients connected in room ${roomId}`);
+      }
     } catch (socketError) {
       console.error('❌ Error sending completion notification:', socketError);
     }

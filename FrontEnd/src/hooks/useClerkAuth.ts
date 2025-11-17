@@ -1,17 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setCredentials, logout, setLoading } from '@/store/slices/authSlice';
 import { authService } from '@/services/authService';
 
 export const useClerkAuth = () => {
-  const { user, isLoaded } = useUser(); 
+  const { user, isLoaded } = useUser();
   const { getToken, signOut } = useAuth();
   const dispatch = useAppDispatch();
   const isAuthenticated = useAppSelector(state => state.auth.isAuthenticated);
-  
-  // Use ref to prevent multiple simultaneous syncs
   const isSyncing = useRef(false);
+  const syncAttempted = useRef(false);
 
   useEffect(() => {
     const syncAuthState = async () => {
@@ -20,26 +19,21 @@ export const useClerkAuth = () => {
         return;
       }
 
-      // Prevent multiple simultaneous sync operations
-      if (isSyncing.current) {
-        return;
-      }
+      if (isSyncing.current) return;
 
       try {
-        if (user) {
-          // Only sync if not already authenticated
-          if (!isAuthenticated) {
-            isSyncing.current = true;
-            
-            // Get Clerk session token
-            const token = await getToken({ skipCache: true });
-            if (!token) {
-              console.error('No token available from Clerk');
-              dispatch(logout());
-              return;
-            }
+        if (user && !isAuthenticated && !syncAttempted.current) {
+          isSyncing.current = true;
+          syncAttempted.current = true;
+          
+          const token = await getToken({ skipCache: true });
+          if (!token) {
+            dispatch(logout());
+            isSyncing.current = false;
+            return;
+          }
 
-            // Sync with backend - only on fresh login
+          try {
             const response = await authService.syncClerkUser({
               clerkId: user.id,
               email: user.primaryEmailAddress?.emailAddress || '',
@@ -47,43 +41,53 @@ export const useClerkAuth = () => {
               profileImage: user.imageUrl,
             }, token);
 
-            // Save to Redux - this also saves token to localStorage
             dispatch(setCredentials({
               user: response.user,
               token: token,
             }));
+          } catch (syncError) {
+            dispatch(setCredentials({
+              user: {
+                id: user.id,
+                email: user.primaryEmailAddress?.emailAddress || '',
+                name: user.fullName || user.username || 'User',
+                role: 'viewer' as const,
+                profileImage: user.imageUrl,
+              },
+              token: token,
+            }));
           }
-        } else {
-          // No Clerk user - clear auth state
+          
+          isSyncing.current = false;
+        } else if (!user && isLoaded) {
           const storedToken = localStorage.getItem('token');
           if (isAuthenticated || storedToken) {
             dispatch(logout());
+            syncAttempted.current = false;
           }
+        } else if (user && isAuthenticated) {
+          syncAttempted.current = true;
         }
       } catch (error) {
-        console.error('Error syncing Clerk user:', error);
-        dispatch(logout());
-      } finally {
         isSyncing.current = false;
+        syncAttempted.current = false;
+      } finally {
         dispatch(setLoading(false));
       }
     };
 
     syncAuthState();
-  }, [user, isLoaded, dispatch, getToken, isAuthenticated]);
+  }, [user, isLoaded, isAuthenticated, dispatch]);
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     try {
-      // Clear Redux state first
+      syncAttempted.current = false;
       dispatch(logout());
-      // Sign out from Clerk
       await signOut();
     } catch (error) {
-      console.error('Error during logout:', error);
-      // Even if Clerk signOut fails, ensure local state is cleared
       dispatch(logout());
     }
-  };
+  }, [dispatch, signOut]);
 
   return {
     user,

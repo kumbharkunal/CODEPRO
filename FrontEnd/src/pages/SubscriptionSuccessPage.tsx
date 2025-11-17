@@ -4,22 +4,72 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Sparkles, Rocket, FolderGit2, ArrowRight, PartyPopper } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useAppDispatch } from '@/store/hooks';
+import { setCredentials } from '@/store/slices/authSlice';
+import { authService } from '@/services/authService';
+import { useUser } from '@clerk/clerk-react';
+import toast from 'react-hot-toast';
 
 export default function SubscriptionSuccessPage() {
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
+  const { user: clerkUser, getToken } = useUser();
   const [searchParams] = useSearchParams();
   const sessionId = searchParams.get('session_id');
   const [showConfetti, setShowConfetti] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (!sessionId) {
       navigate('/pricing');
+      return;
     }
     
+    // Refresh user data after successful subscription
+    const refreshUserData = async () => {
+      if (!clerkUser) return;
+      
+      setRefreshing(true);
+      try {
+        const token = await getToken({ skipCache: true });
+        if (!token) return;
+
+        // Sync user data from backend (includes latest subscription info)
+        const response = await authService.syncClerkUser({
+          clerkId: clerkUser.id,
+          email: clerkUser.primaryEmailAddress?.emailAddress || '',
+          name: clerkUser.fullName || clerkUser.username || 'User',
+          profileImage: clerkUser.imageUrl,
+        }, token);
+
+        // Update Redux store with latest user data (including subscription)
+        dispatch(setCredentials({
+          user: response.user,
+          token: token,
+        }));
+
+        console.log('✅ User data refreshed after subscription:', response.user);
+      } catch (error) {
+        console.error('Error refreshing user data:', error);
+        toast.error('Failed to refresh subscription status. Please refresh the page.');
+      } finally {
+        setRefreshing(false);
+      }
+    };
+
+    // Wait a moment for webhook to process, then refresh
+    const refreshTimer = setTimeout(() => {
+      refreshUserData();
+    }, 2000); // 2 second delay to allow webhook to complete
+    
     // Hide confetti after animation
-    const timer = setTimeout(() => setShowConfetti(false), 5000);
-    return () => clearTimeout(timer);
-  }, [sessionId, navigate]);
+    const confettiTimer = setTimeout(() => setShowConfetti(false), 5000);
+    
+    return () => {
+      clearTimeout(refreshTimer);
+      clearTimeout(confettiTimer);
+    };
+  }, [sessionId, navigate, clerkUser, getToken, dispatch]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">

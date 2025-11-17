@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { clerkClient } from '@clerk/clerk-sdk-node';
 import User from '../models/User';
+import mongoose from 'mongoose';
 
-// Define a custom request type that includes your local user
 export interface AuthRequest extends Request {
-  user?: any; 
+  user?: any;
 }
 
 export const authenticateClerk = async (
@@ -21,7 +21,6 @@ export const authenticateClerk = async (
 
     const token = authHeader.split(' ')[1];
 
-    // 1. Verify the token using Clerk's JWT verification
     try {
       const claims = await clerkClient.verifyToken(token);
       
@@ -29,28 +28,19 @@ export const authenticateClerk = async (
         return res.status(401).json({ message: 'Invalid token' });
       }
       
-      // 2. Get the clerkId (called 'sub' in the JWT)
       const clerkId = claims.sub;
-
-      // 3. Find the local user in your MongoDB
       const localUser = await User.findOne({ clerkId: clerkId });
       
       if (!localUser) {
-        // User not synced - this shouldn't happen with proper frontend flow
         return res.status(401).json({ 
           message: 'User not found. Please log out and log back in.',
           code: 'USER_NOT_SYNCED'
         });
       }
 
-      // 4. Attach the local MongoDB user object to req.user
       req.user = localUser;
-
       next();
     } catch (verifyError: any) {
-      console.error('Token verification error:', verifyError.message);
-      
-      // Handle specific token errors
       if (verifyError.message?.includes('expired')) {
         return res.status(401).json({ 
           message: 'Token expired. Please log in again.',
@@ -64,7 +54,6 @@ export const authenticateClerk = async (
       });
     }
   } catch (error: any) {
-    console.error('Authentication error:', error.message);
     return res.status(401).json({ 
       message: 'Authentication failed',
       code: 'AUTH_ERROR'
@@ -72,7 +61,10 @@ export const authenticateClerk = async (
   }
 };
 
-// Authorize middleware - Check user roles
+/**
+ * Role-based authorization middleware
+ * Only allows users with specified roles to access the route
+ */
 export const authorize = (...roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
@@ -82,7 +74,6 @@ export const authorize = (...roles: string[]) => {
       });
     }
 
-    // Check the user's role (from our local DB)
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({ 
         message: `Access denied. Required roles: ${roles.join(', ')}`,
@@ -93,5 +84,85 @@ export const authorize = (...roles: string[]) => {
     }
     
     next();
+  };
+};
+
+/**
+ * Check if user is admin
+ */
+export const isAdmin = (req: AuthRequest): boolean => {
+  return req.user?.role === 'admin';
+};
+
+/**
+ * Check if user is admin or developer
+ */
+export const isAdminOrDeveloper = (req: AuthRequest): boolean => {
+  return req.user?.role === 'admin' || req.user?.role === 'developer';
+};
+
+/**
+ * Verify resource ownership or admin access
+ * For repositories: checks if user connected the repo OR is admin
+ * For reviews: checks if user is the reviewer OR is admin
+ */
+export const requireOwnershipOrAdmin = (resourceType: 'repository' | 'review') => {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ 
+        message: 'Not authenticated',
+        code: 'NOT_AUTHENTICATED'
+      });
+    }
+
+    // Admins can access everything
+    if (req.user.role === 'admin') {
+      return next();
+    }
+
+    try {
+      const { id } = req.params;
+      
+      if (resourceType === 'repository') {
+        const Repository = mongoose.model('Repository');
+        const resource = await Repository.findById(id);
+        
+        if (!resource) {
+          return res.status(404).json({ message: 'Repository not found' });
+        }
+
+        // Check if user owns the repository
+        if (resource.connectedBy.toString() !== req.user._id.toString()) {
+          return res.status(403).json({ 
+            message: 'Access denied. You can only access repositories you connected.',
+            code: 'ACCESS_DENIED'
+          });
+        }
+      } else if (resourceType === 'review') {
+        const Review = mongoose.model('Review');
+        const resource = await Review.findById(id);
+        
+        if (!resource) {
+          return res.status(404).json({ message: 'Review not found' });
+        }
+
+        // Check if user is the reviewer or if review is for their PR
+        if (resource.reviewedBy.toString() !== req.user._id.toString() && 
+            resource.author !== req.user.email) {
+          return res.status(403).json({ 
+            message: 'Access denied. You can only access your own reviews.',
+            code: 'ACCESS_DENIED'
+          });
+        }
+      }
+
+      next();
+    } catch (error: any) {
+      console.error('Error in requireOwnershipOrAdmin:', error);
+      return res.status(500).json({ 
+        message: 'Error verifying resource access',
+        code: 'VERIFICATION_ERROR'
+      });
+    }
   };
 };

@@ -7,10 +7,14 @@ import { Repository } from '@/types';
 import { Github, Trash2, Plus, GitBranch, Lock, Unlock, CheckCircle2, XCircle, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { githubService } from '@/services/githubService';
+import { useAppSelector } from '@/store/hooks';
+import AdminOnly from '@/components/auth/AdminOnly';
 
 export default function RepositoriesPage() {
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [loading, setLoading] = useState(true);
+  const user = useAppSelector(state => state.auth.user);
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     fetchRepositories();
@@ -76,14 +80,16 @@ export default function RepositoriesPage() {
                 {repositories.length} {repositories.length === 1 ? 'repository' : 'repositories'} connected
               </p>
             </div>
-            <Button 
-              onClick={() => githubService.startOAuth()}
-              size="lg"
-              className="bg-white text-primary hover:bg-white/90 shadow-xl hover:shadow-2xl transition-all"
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              Connect Repository
-            </Button>
+            <AdminOnly>
+              <Button 
+                onClick={() => githubService.startOAuth()}
+                size="lg"
+                className="bg-white text-primary hover:bg-white/90 shadow-xl hover:shadow-2xl transition-all"
+              >
+                <Plus className="w-5 h-5 mr-2" />
+                Connect Repository
+              </Button>
+            </AdminOnly>
           </div>
         </div>
 
@@ -100,14 +106,16 @@ export default function RepositoriesPage() {
                   Connect your first GitHub repository to start reviewing code with AI-powered analysis
                 </p>
               </div>
-              <Button 
-                onClick={() => githubService.startOAuth()} 
-                size="lg"
-                className="bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-lg hover:shadow-xl transition-all"
-              >
-                <Plus className="w-5 h-5 mr-2" />
-                Connect Repository
-              </Button>
+              <AdminOnly>
+                <Button 
+                  onClick={() => githubService.startOAuth()} 
+                  size="lg"
+                  className="bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-lg hover:shadow-xl transition-all"
+                >
+                  <Plus className="w-5 h-5 mr-2" />
+                  Connect Repository
+                </Button>
+              </AdminOnly>
             </CardContent>
           </Card>
         ) : (
@@ -116,7 +124,7 @@ export default function RepositoriesPage() {
               <RepositoryCard
                 key={repo._id}
                 repository={repo}
-                onDelete={() => handleDelete(repo._id)}
+                onDelete={isAdmin ? () => handleDelete(repo._id) : undefined}
               />
             ))}
           </div>
@@ -131,7 +139,7 @@ function RepositoryCard({
   onDelete
 }: {
   repository: Repository;
-  onDelete: () => void;
+  onDelete?: () => void;
 }) {
   const isActive = repository.webhookActive;
   
@@ -220,15 +228,17 @@ function RepositoryCard({
               GitHub
             </a>
           </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={onDelete}
-            className="flex-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 shadow-lg hover:shadow-xl transition-all"
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            Disconnect
-          </Button>
+          {onDelete && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={onDelete}
+              className="flex-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 shadow-lg hover:shadow-xl transition-all"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Disconnect
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

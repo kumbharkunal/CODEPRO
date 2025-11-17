@@ -99,14 +99,45 @@ export const postReviewComment = async (
 
 // Format review findings as markdown
 export const formatReviewAsMarkdown = (review: any): string => {
-  let markdown = `## 🤖 CodePro AI Review\n\n`;
-  markdown += `**Quality Score:** ${review.qualityScore}/100\n\n`;
-  markdown += `**Summary:** ${review.summary}\n\n`;
-  markdown += `**Files Analyzed:** ${review.filesAnalyzed}\n`;
-  markdown += `**Issues Found:** ${review.issuesFound}\n\n`;
+  // Get quality badge color based on score
+  const getQualityBadge = (score: number): string => {
+    if (score >= 90) return '![Quality](https://img.shields.io/badge/Quality-Excellent-brightgreen)';
+    if (score >= 80) return '![Quality](https://img.shields.io/badge/Quality-Good-green)';
+    if (score >= 60) return '![Quality](https://img.shields.io/badge/Quality-Fair-yellow)';
+    if (score >= 40) return '![Quality](https://img.shields.io/badge/Quality-Needs%20Improvement-orange)';
+    return '![Quality](https://img.shields.io/badge/Quality-Poor-red)';
+  };
+
+  const getQualityEmoji = (score: number): string => {
+    if (score >= 90) return '🌟';
+    if (score >= 80) return '✅';
+    if (score >= 60) return '⚠️';
+    return '❌';
+  };
+
+  const qualityScore = review.qualityScore || 0;
+  const qualityBadge = getQualityBadge(qualityScore);
+  const qualityEmoji = getQualityEmoji(qualityScore);
+
+  let markdown = `## 🤖 AI Code Review by CodePro\n\n`;
+  markdown += `---\n\n`;
+  
+  // Stats Table - Eye-catching layout
+  markdown += `| ${qualityEmoji} **Quality Score** | 📁 **Files Analyzed** | 🐛 **Issues Found** |\n`;
+  markdown += `|:---:|:---:|:---:|\n`;
+  markdown += `| **${qualityScore}/100** ${qualityBadge} | **${review.filesAnalyzed || 0}** | **${review.issuesFound || 0}** |\n\n`;
+
+  // Summary Section
+  if (review.summary) {
+    markdown += `### 📋 Summary\n\n`;
+    markdown += `> ${review.summary}\n\n`;
+    markdown += `---\n\n`;
+  }
 
   if (review.findings && review.findings.length > 0) {
-    markdown += `---\n\n### Issues Found\n\n`;
+    markdown += `## 🔍 Issues Found\n\n`;
+    markdown += `<details>\n`;
+    markdown += `<summary><b>📊 Click to view all issues (${review.findings.length} total)</b></summary>\n\n`;
 
     // Group by severity
     const critical = review.findings.filter((f: any) => f.severity === 'critical');
@@ -114,36 +145,80 @@ export const formatReviewAsMarkdown = (review: any): string => {
     const medium = review.findings.filter((f: any) => f.severity === 'medium');
     const low = review.findings.filter((f: any) => f.severity === 'low');
 
-    const addFindings = (findings: any[], emoji: string, label: string) => {
+    const addFindings = (findings: any[], emoji: string, label: string, color: string) => {
       if (findings.length > 0) {
-        markdown += `#### ${emoji} ${label} (${findings.length})\n\n`;
+        markdown += `### ${emoji} ${label} (${findings.length})\n\n`;
+        
+        // Summary table using markdown
+        markdown += `| # | Issue | Location | Category |\n`;
+        markdown += `|---|-------|----------|----------|\n`;
+        
         findings.forEach((finding: any, index: number) => {
-          markdown += `**${index + 1}. ${finding.title}** (\`${finding.file}\`:${finding.line})\n`;
-          markdown += `- **Category:** ${finding.category}\n`;
-          markdown += `- **Issue:** ${finding.description}\n`;
+          const fileDisplay = finding.file.length > 30 
+            ? finding.file.substring(0, 27) + '...' 
+            : finding.file;
+          
+          markdown += `| **${index + 1}** | **${finding.title}** | \`${fileDisplay}:${finding.line || '?'}\` | \`${finding.category || 'N/A'}\` |\n`;
+        });
+        
+        markdown += `\n`;
+
+        // Detailed findings in collapsible sections
+        findings.forEach((finding: any, index: number) => {
+          markdown += `<details>\n`;
+          markdown += `<summary><b>${index + 1}. ${finding.title}</b> - <code>${finding.file}:${finding.line || '?'}</code></summary>\n\n`;
+          
+          markdown += `**📝 Description:**\n`;
+          markdown += `> ${finding.description || 'No description provided.'}\n\n`;
+          
+          if (finding.category) {
+            markdown += `**🏷️ Category:** \`${finding.category}\`\n\n`;
+          }
+          
           if (finding.suggestion) {
-            markdown += `- **Suggestion:** ${finding.suggestion}\n`;
+            markdown += `**💡 Suggestion:**\n`;
+            markdown += `> ${finding.suggestion}\n\n`;
           }
+          
           if (finding.codeSnippet) {
-            markdown += `\`\`\`\n${finding.codeSnippet}\n\`\`\`\n`;
+            markdown += `**📄 Code Snippet:**\n\n`;
+            // Try to detect language from file extension
+            const fileExt = finding.file.split('.').pop()?.toLowerCase() || '';
+            const languageMap: { [key: string]: string } = {
+              'ts': 'typescript', 'js': 'javascript', 'jsx': 'jsx', 'tsx': 'tsx',
+              'py': 'python', 'java': 'java', 'go': 'go', 'rb': 'ruby',
+              'php': 'php', 'cpp': 'cpp', 'c': 'c', 'cs': 'csharp',
+              'swift': 'swift', 'kt': 'kotlin', 'rs': 'rust'
+            };
+            const language = languageMap[fileExt] || '';
+            markdown += `\`\`\`${language}\n${finding.codeSnippet}\n\`\`\`\n\n`;
           }
-          markdown += `\n`;
+          
+          markdown += `</details>\n\n`;
         });
       }
     };
 
-    addFindings(critical, '🚨', 'Critical Issues');
-    addFindings(high, '⚠️', 'High Priority');
-    addFindings(medium, '⚡', 'Medium Priority');
-    addFindings(low, 'ℹ️', 'Low Priority / Info');
+    addFindings(critical, '🚨', 'Critical Issues', 'red');
+    addFindings(high, '⚠️', 'High Priority Issues', 'orange');
+    addFindings(medium, '⚡', 'Medium Priority Issues', 'yellow');
+    addFindings(low, 'ℹ️', 'Low Priority / Suggestions', 'blue');
+
+    markdown += `</details>\n\n`;
 
   } else {
-    markdown += `### ✅ No Issues Found\n\n`;
-    markdown += `Great job! The code looks clean.\n\n`;
+    markdown += `## ✅ No Issues Found!\n\n`;
+    markdown += `<div align="center">\n\n`;
+    markdown += `🎉 **Excellent work!** Your code looks clean and well-written.\n\n`;
+    markdown += `![Success](https://img.shields.io/badge/Status-All%20Clear-success?style=for-the-badge)\n\n`;
+    markdown += `</div>\n\n`;
   }
 
-  markdown += `---\n`;
-  markdown += `*Powered by CodePro AI - Gemini Pro 2.0*`;
+  markdown += `---\n\n`;
+  markdown += `<div align="center">\n\n`;
+  markdown += `*Powered by [CodePro AI](https://codepro.ai) 🤖 | Gemini Pro 2.0*\n\n`;
+  markdown += `*Automated code review • Quality assurance • Best practices*\n\n`;
+  markdown += `</div>`;
 
   return markdown;
 };

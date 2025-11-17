@@ -13,7 +13,7 @@ import { logout } from '@/store/slices/authSlice';
 import { toggleTheme } from '@/store/slices/themeSlice';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
-import { Code2, Moon, Sun, LogOut, User, Settings, LayoutDashboard, GitPullRequest, FolderGit2, CreditCard, Menu, X, Sparkles } from 'lucide-react';
+import { Code2, Moon, Sun, LogOut, User, Settings, LayoutDashboard, GitPullRequest, FolderGit2, CreditCard, Menu, X, Sparkles, Users } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 export default function Navbar() {
@@ -58,6 +58,7 @@ export default function Navbar() {
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Reviews', path: '/reviews', icon: GitPullRequest },
     { name: 'Repositories', path: '/repositories', icon: FolderGit2 },
+    ...(user.role === 'admin' ? [{ name: 'Users', path: '/admin/users', icon: Users }] : []),
   ] : [];
 
   return (

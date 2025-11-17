@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import Review from '../models/Review';
 import { getIO } from '../config/socket';
 import { analyzeMultipleFiles } from '../config/gemini';
+import { AuthRequest } from '../middlewares/auth';
 
 // Create review
 export const createReview = async (req: Request, res: Response) => {
@@ -57,9 +58,23 @@ export const createReview = async (req: Request, res: Response) => {
 };
 
 // Get all reviews
-export const getAllReviews = async (req: Request, res: Response) => {
+// - Admins: See all reviews
+// - Developers: See reviews for PRs they created (author field matches their email)
+export const getAllReviews = async (req: AuthRequest, res: Response) => {
   try {
-    const reviews = await Review.find()
+    const userId = req.user._id;
+    const userRole = req.user.role;
+    const userEmail = req.user.email;
+
+    let query: any = {};
+
+    // Admins see all reviews
+    if (userRole !== 'admin') {
+      // Developers see reviews for PRs they created (where author matches their email)
+      query = { author: userEmail };
+    }
+
+    const reviews = await Review.find(query)
       .populate('repositoryId', 'name fullName')
       .populate('reviewedBy', 'name email')
       .sort({ createdAt: -1 });
@@ -72,10 +87,31 @@ export const getAllReviews = async (req: Request, res: Response) => {
 };
 
 // Get reviews by repository
-export const getRepositoryReviews = async (req: Request, res: Response) => {
+// - Admins: Can see all reviews for any repository
+// - Developers: Can see reviews for PRs they created
+export const getRepositoryReviews = async (req: AuthRequest, res: Response) => {
   try {
     const { repositoryId } = req.params;
-    const reviews = await Review.find({ repositoryId })
+    const userRole = req.user.role;
+    const userEmail = req.user.email;
+    
+    // Verify repository exists
+    const Repository = require('../models/Repository').default;
+    const repository = await Repository.findById(repositoryId);
+    
+    if (!repository) {
+      return res.status(404).json({ message: 'Repository not found' });
+    }
+    
+    // Build query based on role
+    let query: any = { repositoryId };
+    
+    // Developers only see reviews for PRs they created
+    if (userRole !== 'admin') {
+      query.author = userEmail;
+    }
+    
+    const reviews = await Review.find(query)
       .populate('reviewedBy', 'name email')
       .sort({ createdAt: -1 });
 
@@ -87,15 +123,28 @@ export const getRepositoryReviews = async (req: Request, res: Response) => {
 };
 
 // Get single review
-export const getReviewById = async (req: Request, res: Response) => {
+// - Admins: Can see any review
+// - Developers: Can see reviews for PRs they created
+export const getReviewById = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const userRole = req.user.role;
+    const userEmail = req.user.email;
+    
     const review = await Review.findById(id)
       .populate('repositoryId', 'name fullName owner')
       .populate('reviewedBy', 'name email');
 
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
+    }
+
+    // Check access: Admins can see all, developers can see their own PR reviews
+    if (userRole !== 'admin' && review.author !== userEmail) {
+      return res.status(403).json({ 
+        message: 'Access denied. You can only view reviews for your own PRs.',
+        code: 'ACCESS_DENIED'
+      });
     }
 
     res.status(200).json(review);
@@ -105,8 +154,8 @@ export const getReviewById = async (req: Request, res: Response) => {
   }
 };
 
-// Update review (for AI to add findings)
-export const updateReview = async (req: Request, res: Response) => {
+// Update review (for AI to add findings or admin updates)
+export const updateReview = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { status, filesAnalyzed, issuesFound, findings, summary, qualityScore } = req.body;
@@ -181,11 +230,41 @@ export const updateReview = async (req: Request, res: Response) => {
 };
 
 // Get user's reviews
-export const getUserReviews = async (req: Request, res: Response) => {
+// - Admins: Can view any user's reviews
+// - Developers: Can only view their own reviews
+export const getUserReviews = async (req: AuthRequest, res: Response) => {
   try {
     const { userId } = req.params;
-    const reviews = await Review.find({ reviewedBy: userId })
+    const userRole = req.user.role;
+    const currentUserId = req.user._id.toString();
+
+    // Admins can view any user's reviews, others can only view their own
+    if (userRole !== 'admin' && userId !== currentUserId) {
+      return res.status(403).json({ 
+        message: 'Access denied. You can only view your own reviews.',
+        code: 'ACCESS_DENIED'
+      });
+    }
+
+    // Get user email for filtering by author
+    const User = require('../models/User').default;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // For developers, show reviews for PRs they created
+    let query: any = {};
+    if (userRole !== 'admin') {
+      query.author = user.email;
+    } else {
+      // For admins viewing a user's reviews, show all reviews for PRs created by that user
+      query.author = user.email;
+    }
+
+    const reviews = await Review.find(query)
       .populate('repositoryId', 'name fullName')
+      .populate('reviewedBy', 'name email')
       .sort({ createdAt: -1 });
 
     res.status(200).json(reviews);
@@ -196,21 +275,35 @@ export const getUserReviews = async (req: Request, res: Response) => {
 };
 
 // Get review statistics
-export const getReviewStats = async (req: Request, res: Response) => {
+// - Admins: See stats for all reviews
+// - Developers: See stats for their own PR reviews
+export const getReviewStats = async (req: AuthRequest, res: Response) => {
   try {
-    const totalReviews = await Review.countDocuments();
-    const completedReviews = await Review.countDocuments({ status: 'completed' });
-    const pendingReviews = await Review.countDocuments({ status: 'pending' });
-    const inProgressReviews = await Review.countDocuments({ status: 'in_progress' });
+    const userRole = req.user.role;
+    const userEmail = req.user.email;
+
+    // Build query based on role
+    let query: any = {};
+    if (userRole !== 'admin') {
+      query.author = userEmail; // Developers see stats for their PRs
+    }
+
+    const totalReviews = await Review.countDocuments(query);
+    const completedReviews = await Review.countDocuments({ ...query, status: 'completed' });
+    const pendingReviews = await Review.countDocuments({ ...query, status: 'pending' });
+    const inProgressReviews = await Review.countDocuments({ ...query, status: 'in_progress' });
 
     // Get average quality score
-    const reviewsWithScores = await Review.find({ qualityScore: { $exists: true } });
+    const reviewsWithScores = await Review.find({ 
+      ...query,
+      qualityScore: { $exists: true } 
+    });
     const avgQualityScore = reviewsWithScores.length > 0
       ? reviewsWithScores.reduce((sum, review) => sum + (review.qualityScore || 0), 0) / reviewsWithScores.length
       : 0;
 
     // Get total issues found
-    const allReviews = await Review.find();
+    const allReviews = await Review.find(query);
     const totalIssues = allReviews.reduce((sum, review) => sum + review.issuesFound, 0);
 
     res.status(200).json({
@@ -223,6 +316,26 @@ export const getReviewStats = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error fetching review stats:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Delete review (Admin only)
+export const deleteReview = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const review = await Review.findByIdAndDelete(id);
+
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+
+    res.status(200).json({ 
+      message: 'Review deleted successfully' 
+    });
+  } catch (error) {
+    console.error('Error deleting review:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };

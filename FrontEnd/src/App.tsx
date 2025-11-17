@@ -25,7 +25,9 @@ import GitHubCallbackPage from './pages/GithubCallbackPage';
 import ConnectRepositoryPage from './pages/ConnectRepositoryPage';
 import SettingsPage from './pages/SettingsPage';
 import SubscriptionSuccessPage from './pages/SubscriptionSuccessPage';
+import AdminUsersPage from './pages/AdminUsersPage';
 import NotFoundPage from './pages/NotFoundPage';
+import RoleBasedRoute from './components/auth/RoleBasedRoute';
 
 function AppContentInner() {
   return (
@@ -44,7 +46,26 @@ function AppContentInner() {
           <Route path="/repositories" element={<ProtectedRoute><RepositoriesPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/auth/github/callback" element={<GitHubCallbackPage />} />
-          <Route path="/repositories/connect" element={<ProtectedRoute><ConnectRepositoryPage /></ProtectedRoute>} />
+          <Route 
+            path="/repositories/connect" 
+            element={
+              <ProtectedRoute>
+                <RoleBasedRoute allowedRoles={['admin']}>
+                  <ConnectRepositoryPage />
+                </RoleBasedRoute>
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/admin/users" 
+            element={
+              <ProtectedRoute>
+                <RoleBasedRoute allowedRoles={['admin']}>
+                  <AdminUsersPage />
+                </RoleBasedRoute>
+              </ProtectedRoute>
+            } 
+          />
         </Route>
       </Route>
 

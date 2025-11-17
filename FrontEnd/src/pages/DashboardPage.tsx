@@ -18,6 +18,11 @@ export default function DashboardPage() {
 
   // 🔥 FIX 4: Listen to custom events dispatched by useSocket
   useEffect(() => {
+    const handleSocketConnected = () => {
+      console.log('Dashboard: Socket connected - refreshing stats to catch any missed notifications');
+      fetchStats();
+    };
+
     const handleReviewCreated = () => {
       console.log('Dashboard: Refetching stats after review-created');
       fetchStats();
@@ -33,11 +38,13 @@ export default function DashboardPage() {
       fetchStats();
     };
 
+    window.addEventListener('socket-connected', handleSocketConnected);
     window.addEventListener('review-created', handleReviewCreated);
     window.addEventListener('review-updated', handleReviewUpdated);
     window.addEventListener('review-completed', handleReviewCompleted);
 
     return () => {
+      window.removeEventListener('socket-connected', handleSocketConnected);
       window.removeEventListener('review-created', handleReviewCreated);
       window.removeEventListener('review-updated', handleReviewUpdated);
       window.removeEventListener('review-completed', handleReviewCompleted);

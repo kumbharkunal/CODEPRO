@@ -14,6 +14,10 @@ export const initializeSocket = (httpServer: HTTPServer) => {
 
     io.on('connection', (socket) => {
         console.log('✅ Client connected:', socket.id);
+        
+        // Log authentication data for debugging
+        const authToken = socket.handshake.auth?.token;
+        console.log('🔐 Auth token present:', !!authToken);
 
         socket.on('join-room', (roomId: string) => {
             socket.join(roomId);

@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { reviewService } from '@/services/reviewService';
 import { Review } from '@/types';
 import { ArrowLeft, ExternalLink, AlertTriangle, Info, FileCode, CheckCircle2, TrendingUp, GitPullRequest, User } from 'lucide-react';
+import { formatStatus } from '@/lib/utils';
 
 export default function ReviewDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +18,34 @@ export default function ReviewDetailPage() {
     if (id) {
       fetchReview(id);
     }
+  }, [id]);
+
+  // Listen for review updates to refresh this specific review
+  useEffect(() => {
+    const handleReviewUpdated = (event: any) => {
+      const updatedReviewId = event.detail?.reviewId;
+      // Only refresh if this is the review being viewed
+      if (id && updatedReviewId && updatedReviewId === id) {
+        console.log('This review was updated - refreshing');
+        fetchReview(id);
+      }
+    };
+
+    const handleReviewCompleted = (event: any) => {
+      const completedReviewId = event.detail?.reviewId;
+      if (id && completedReviewId && completedReviewId === id) {
+        console.log('This review was completed - refreshing');
+        fetchReview(id);
+      }
+    };
+
+    window.addEventListener('review-updated', handleReviewUpdated);
+    window.addEventListener('review-completed', handleReviewCompleted);
+
+    return () => {
+      window.removeEventListener('review-updated', handleReviewUpdated);
+      window.removeEventListener('review-completed', handleReviewCompleted);
+    };
   }, [id]);
 
   const fetchReview = async (reviewId: string) => {
@@ -143,7 +172,7 @@ export default function ReviewDetailPage() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatBox
                 label="Status"
-                value={review.status.replace('_', ' ')}
+                value={formatStatus(review.status)}
                 badge
                 gradient="from-blue-500/10 to-blue-500/5"
               />

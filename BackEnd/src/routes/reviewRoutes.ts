@@ -7,9 +7,10 @@ import {
   updateReview,
   getUserReviews,
   getReviewStats,
+  deleteReview,
 } from '../controllers/reviewController';
 import { createReviewLimiter } from '../config/rateLimiter';
-import { authenticateClerk } from '../middlewares/auth';
+import { authenticateClerk, authorize } from '../middlewares/auth';
 import Repository from '../models/Repository';
 import { getIO } from '../config/socket';
 
@@ -18,23 +19,26 @@ const router = express.Router();
 // POST /api/reviews - Create new review
 router.post('/', authenticateClerk, createReviewLimiter, createReview);
 
-// GET /api/reviews - Get all reviews
-router.get('/', getAllReviews);
+// GET /api/reviews - Get all reviews (PROTECTED - only user's own reviews)
+router.get('/', authenticateClerk, getAllReviews);
 
-// GET /api/reviews/stats - Get review statistics
-router.get('/stats', getReviewStats);
+// GET /api/reviews/stats - Get review statistics (PROTECTED - only user's stats)
+router.get('/stats', authenticateClerk, getReviewStats);
 
-// GET /api/reviews/repository/:repositoryId - Get repository reviews
-router.get('/repository/:repositoryId', getRepositoryReviews);
+// GET /api/reviews/repository/:repositoryId - Get repository reviews (PROTECTED)
+router.get('/repository/:repositoryId', authenticateClerk, getRepositoryReviews);
 
-// GET /api/reviews/user/:userId - Get user reviews
-router.get('/user/:userId', getUserReviews);
+// GET /api/reviews/user/:userId - Get user reviews (PROTECTED)
+router.get('/user/:userId', authenticateClerk, getUserReviews);
 
-// GET /api/reviews/:id - Get single review
-router.get('/:id', getReviewById);
+// GET /api/reviews/:id - Get single review (PROTECTED)
+router.get('/:id', authenticateClerk, getReviewById);
 
-// PUT /api/reviews/:id - Update review
-router.put('/:id', updateReview);
+// PUT /api/reviews/:id - Update review (Authenticated - AI updates or admin)
+router.put('/:id', authenticateClerk, updateReview);
+
+// DELETE /api/reviews/:id - Delete review (Admin only)
+router.delete('/:id', authenticateClerk, authorize('admin'), deleteReview);
 
 // POST /api/reviews/test-ai - Test AI review (development only)
 // if (process.env.NODE_ENV === 'development') {

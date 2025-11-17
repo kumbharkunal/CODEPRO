@@ -41,7 +41,15 @@ export const useSocket = () => {
 
       // Join user's room
       const userId = user._id || user.id || user.clerkId;
-      socket.emit('join-room', `user_${userId}`);
+      const roomId = `user_${userId}`;
+      
+      if (isDev) {
+        console.log('User object:', user);
+        console.log('Extracted userId:', userId);
+        console.log('Joining room:', roomId);
+      }
+      
+      socket.emit('join-room', roomId);
     });
 
     socket.on('disconnect', (reason) => {
@@ -55,12 +63,19 @@ export const useSocket = () => {
     });
 
     socket.on('room-joined', (data) => {
-      if (isDev) console.log('Joined room:', data.roomId);
+      if (isDev) {
+        console.log('✅ Successfully joined room:', data.roomId);
+        console.log('Socket ID:', data.socketId);
+      }
+      
+      // Dispatch event to trigger reviews refresh on connection
+      // This ensures we get any reviews created while user was offline
+      window.dispatchEvent(new CustomEvent('socket-connected'));
     });
 
     // Review events
     socket.on('review-created', (data) => {
-      if (isDev) console.log('Review created:', data);
+      console.log('🎉 Review created notification received:', data);
 
       toast.success(`New review created for PR #${data.pullRequestNumber}`, {
         duration: 4000,
@@ -71,7 +86,7 @@ export const useSocket = () => {
     });
 
     socket.on('review-updated', (data) => {
-      if (isDev) console.log('Review updated:', data);
+      console.log('📝 Review updated notification received:', data);
 
       const icon = data.status === 'in_progress' ? '⚙️' : 
                    data.status === 'completed' ? '✅' : 
@@ -86,7 +101,7 @@ export const useSocket = () => {
     });
 
     socket.on('review-completed', (data) => {
-      if (isDev) console.log('Review completed:', data);
+      console.log('✅ Review completed notification received:', data);
 
       toast.success(
         `Review complete! Found ${data.issuesFound} issues. Quality score: ${data.qualityScore}/100`,

@@ -5,14 +5,40 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { reviewService } from '@/services/reviewService';
 import { Review } from '@/types';
-import { ExternalLink, FileCode, AlertCircle, CheckCircle2, Clock, GitPullRequest, User, TrendingUp } from 'lucide-react';
+import { ExternalLink, FileCode, AlertCircle, CheckCircle2, Clock, GitPullRequest, User, TrendingUp, RefreshCw } from 'lucide-react';
+import { formatStatus } from '@/lib/utils';
+import toast from 'react-hot-toast';
 
 export default function ReviewsPage() {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchReviews();
+    
+    // Listen for socket connection to refresh reviews (catches missed notifications)
+    const handleSocketConnected = () => {
+      console.log('Socket connected - refreshing reviews to catch any missed notifications');
+      fetchReviews();
+    };
+    
+    // Listen for review events to refresh the list
+    const handleReviewEvent = () => {
+      fetchReviews();
+    };
+    
+    window.addEventListener('socket-connected', handleSocketConnected);
+    window.addEventListener('review-created', handleReviewEvent);
+    window.addEventListener('review-updated', handleReviewEvent);
+    window.addEventListener('review-completed', handleReviewEvent);
+    
+    return () => {
+      window.removeEventListener('socket-connected', handleSocketConnected);
+      window.removeEventListener('review-created', handleReviewEvent);
+      window.removeEventListener('review-updated', handleReviewEvent);
+      window.removeEventListener('review-completed', handleReviewEvent);
+    };
   }, []);
 
   const fetchReviews = async () => {
@@ -23,6 +49,20 @@ export default function ReviewsPage() {
       console.error('Error fetching reviews:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const data = await reviewService.getAllReviews();
+      setReviews(data);
+      toast.success('Reviews refreshed successfully!');
+    } catch (error) {
+      console.error('Error refreshing reviews:', error);
+      toast.error('Failed to refresh reviews');
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -48,16 +88,29 @@ export default function ReviewsPage() {
           <div className="absolute inset-0 bg-grid-white/10 [mask-image:linear-gradient(0deg,transparent,black)]"></div>
           <div className="absolute inset-0 bg-gradient-to-br from-transparent via-white/5 to-transparent"></div>
           
-          <div className="relative space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
-                <GitPullRequest className="w-6 h-6" />
+          <div className="relative flex items-center justify-between gap-4">
+            <div className="space-y-2 flex-1">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                  <GitPullRequest className="w-6 h-6" />
+                </div>
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight">Code Reviews</h1>
               </div>
-              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight">Code Reviews</h1>
+              <p className="text-primary-foreground/80 text-sm sm:text-base">
+                {reviews.length} {reviews.length === 1 ? 'review' : 'reviews'} • AI-powered analysis
+              </p>
             </div>
-            <p className="text-primary-foreground/80 text-sm sm:text-base">
-              {reviews.length} {reviews.length === 1 ? 'review' : 'reviews'} • AI-powered analysis
-            </p>
+            
+            <Button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              variant="secondary"
+              size="lg"
+              className="bg-white text-primary font-semibold border-2 border-white/30 hover:bg-white/95 hover:border-white shadow-xl hover:shadow-2xl hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 rounded-lg px-6"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </Button>
           </div>
         </div>
 
@@ -167,11 +220,11 @@ function ReviewCard({ review }: { review: Review }) {
           </div>
           
           <div className="flex sm:flex-col gap-2">
-            <Badge variant={statusConfig.variant} className={`${statusConfig.text} border ${statusConfig.border} whitespace-nowrap`}>
-              {review.status.replace('_', ' ')}
+            <Badge variant="outline" className={`${statusConfig.bg} ${statusConfig.text} border ${statusConfig.border} whitespace-nowrap`}>
+              {formatStatus(review.status)}
             </Badge>
             {review.qualityScore !== undefined && (
-              <Badge className={`${qualityConfig.bg} ${qualityConfig.color} border-0 whitespace-nowrap`}>
+              <Badge variant="outline" className={`${qualityConfig.bg} ${qualityConfig.color} border-0 whitespace-nowrap`}>
                 {qualityConfig.label}
               </Badge>
             )}

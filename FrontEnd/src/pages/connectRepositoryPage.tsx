@@ -82,7 +82,7 @@ export default function ConnectRepositoryPage() {
         return;
       }
 
-      await githubService.connectRepository(
+      const response = await githubService.connectRepository(
         {
           githubRepoId: repo.id,
           name: repo.name,
@@ -97,6 +97,26 @@ export default function ConnectRepositoryPage() {
       );
 
       toast.success(`${repo.name} connected successfully!`);
+      
+      // Show webhook warning if present
+      if (response.webhookWarning) {
+        // Determine if it's a critical warning or just informational
+        const isInfo = response.webhookWarning.includes('already exists') || 
+                       response.webhookWarning.includes('will continue to work');
+        
+        if (isInfo) {
+          toast.success(response.webhookWarning, {
+            duration: 5000,
+            icon: 'ℹ️',
+          });
+        } else {
+          toast(response.webhookWarning, {
+            duration: 6000,
+            icon: '⚠️',
+          });
+        }
+      }
+      
       localStorage.removeItem('github_token');
       navigate('/repositories');
     } catch (error: any) {

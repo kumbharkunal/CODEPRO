@@ -1,45 +1,35 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@clerk/clerk-react';
 import { Loader2 } from 'lucide-react';
 
 export default function SSOCallbackPage() {
   const navigate = useNavigate();
-  const { isLoaded, isSignedIn } = useAuth();
-  const [error, setError] = useState<string | null>(null);
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
+  const { isLoaded: userLoaded } = useUser();
+  const [timeoutReached, setTimeoutReached] = useState(false);
 
   useEffect(() => {
-    const handleCallback = async () => {
-      if (!isLoaded) return;
+    if (!authLoaded || !userLoaded) return;
 
-      // Wait for Clerk to fully process the OAuth callback
-      // The redirect is handled automatically by Clerk
-      let attempts = 0;
-      const maxAttempts = 20; // 10 seconds total
-      
-      const checkSignIn = setInterval(() => {
-        attempts++;
-        
-        if (isSignedIn) {
-          clearInterval(checkSignIn);
-          console.log('✅ OAuth sign-in successful, redirecting to dashboard');
-          navigate('/dashboard', { replace: true });
-        } else if (attempts >= maxAttempts) {
-          clearInterval(checkSignIn);
-          console.error('❌ OAuth callback timeout - user not signed in after 10 seconds');
-          setError('Authentication is taking longer than expected. Please try again.');
-          setTimeout(() => navigate('/login', { replace: true }), 2000);
-        }
-      }, 500);
+    if (isSignedIn) {
+      navigate('/dashboard', { replace: true });
+      return;
+    }
 
-      // Cleanup interval on unmount
-      return () => clearInterval(checkSignIn);
-    };
+    const timeout = setTimeout(() => {
+      if (!isSignedIn) {
+        setTimeoutReached(true);
+        setTimeout(() => {
+          navigate('/login', { replace: true });
+        }, 2000);
+      }
+    }, 10000);
 
-    handleCallback();
-  }, [isLoaded, isSignedIn, navigate]);
+    return () => clearTimeout(timeout);
+  }, [authLoaded, userLoaded, isSignedIn, navigate]);
 
-  if (error) {
+  if (timeoutReached) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-white">
         <div className="text-center max-w-md px-4">
@@ -48,7 +38,7 @@ export default function SSOCallbackPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </div>
-          <p className="text-lg text-red-600 mb-2">{error}</p>
+          <p className="text-lg text-red-600 mb-2">Authentication is taking longer than expected.</p>
           <p className="text-sm text-gray-600">Redirecting to login...</p>
         </div>
       </div>

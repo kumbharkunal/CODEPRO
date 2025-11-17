@@ -124,31 +124,85 @@ export const connectRepository = async (req: Request, res: Response) => {
 
     // Get webhook URL (use environment variable or construct)
     const webhookUrl = process.env.WEBHOOK_URL;
-    if (!webhookUrl) {
-      console.error('FATAL: WEBHOOK_URL is not set in environment variables.');
-      return res.status(500).json({ message: 'Webhook URL not configured' });
-    }
-
     let webhookId = null;
     let webhookActive = false;
+    let webhookWarning = null;
 
-    try {
-      const { data: webhook } = await octokit.repos.createWebhook({
-        owner: repoOwner,
-        repo: repoName,
-        config: {
-          url: webhookUrl,
-          content_type: 'json',
-          secret: process.env.GITHUB_WEBHOOK_SECRET,
-        },
-        events: ['pull_request'],
-      });
+    if (!webhookUrl) {
+      console.warn('⚠️ WEBHOOK_URL is not set in environment variables. Skipping webhook creation.');
+      console.warn('⚠️ You will need to manually create webhooks or set WEBHOOK_URL to enable automatic PR reviews.');
+      webhookWarning = 'Webhook not created - WEBHOOK_URL not configured. You can add webhooks manually later.';
+    } else {
+      try {
+        // First, check if webhook already exists
+        const { data: existingHooks } = await octokit.repos.listWebhooks({
+          owner: repoOwner,
+          repo: repoName,
+        });
 
-      webhookId = webhook.id;
-      webhookActive = true;
-    } catch (webhookError: any) {
-      console.error('Failed to create webhook:', webhookError.message);
-      // Continue even if webhook creation fails (can add manually)
+        // Find existing webhook with matching URL
+        const existingWebhook = existingHooks.find((hook: any) => 
+          hook.config?.url === webhookUrl
+        );
+
+        if (existingWebhook) {
+          // Reuse existing webhook
+          webhookId = existingWebhook.id;
+          webhookActive = existingWebhook.active;
+          console.log(`✅ Found existing webhook with ID: ${webhookId} (active: ${webhookActive})`);
+          
+          // Update webhook to ensure it has the correct configuration
+          try {
+            await octokit.repos.updateWebhook({
+              owner: repoOwner,
+              repo: repoName,
+              hook_id: webhookId,
+              config: {
+                url: webhookUrl,
+                content_type: 'json',
+                secret: process.env.GITHUB_WEBHOOK_SECRET,
+              },
+              events: ['pull_request'],
+              active: true,
+            });
+            webhookActive = true;
+            console.log(`✅ Updated existing webhook configuration`);
+          } catch (updateError: any) {
+            console.warn('⚠️ Could not update webhook configuration:', updateError.message);
+            // Continue with existing webhook even if update fails
+          }
+        } else {
+          // Create new webhook
+          const { data: webhook } = await octokit.repos.createWebhook({
+            owner: repoOwner,
+            repo: repoName,
+            config: {
+              url: webhookUrl,
+              content_type: 'json',
+              secret: process.env.GITHUB_WEBHOOK_SECRET,
+            },
+            events: ['pull_request'],
+          });
+
+          webhookId = webhook.id;
+          webhookActive = true;
+          console.log(`✅ Webhook created successfully with ID: ${webhookId}`);
+        }
+      } catch (webhookError: any) {
+        console.error('❌ Failed to create/update webhook:', webhookError.message);
+        
+        // More specific error messages
+        if (webhookError.message.includes('Hook already exists')) {
+          webhookWarning = 'A webhook already exists for this repository. It will continue to work.';
+        } else if (webhookError.status === 403) {
+          webhookWarning = 'Insufficient permissions to manage webhooks. Please ensure your GitHub token has admin:repo_hook scope.';
+        } else if (webhookError.status === 404) {
+          webhookWarning = 'Repository not found or access denied. Please check repository permissions.';
+        } else {
+          webhookWarning = 'Webhook setup encountered an issue, but the repository was connected successfully.';
+        }
+        // Continue even if webhook creation fails (can add manually)
+      }
     }
 
     // Save to database
@@ -177,6 +231,7 @@ export const connectRepository = async (req: Request, res: Response) => {
       message: 'Repository connected successfully',
       repository: newRepo,
       webhookCreated: webhookActive,
+      webhookWarning: webhookWarning,
     });
   } catch (error) {
     console.error('Error connecting repository:', error);

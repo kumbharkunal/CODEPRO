@@ -1,12 +1,15 @@
-import { useSignIn, useSignUp, useUser } from '@clerk/clerk-react';
-import { Navigate } from 'react-router-dom';
+import { useSignIn, useSignUp, useUser, useAuth } from '@clerk/clerk-react';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Code2, Mail, Eye, EyeOff, Loader2, Github, GitBranch, CheckCircle, MessageSquare, Zap } from 'lucide-react';
+import { Code2, Mail, Eye, EyeOff, Loader2, Github } from 'lucide-react';
 
 export default function LoginPage() {
-  const { isSignedIn } = useUser();
+  const { isSignedIn, isLoaded: userLoaded } = useUser();
+  const { isLoaded: authLoaded } = useAuth();
   const { signIn, setActive } = useSignIn();
   const { signUp, setActive: setActiveSignUp } = useSignUp();
+  const navigate = useNavigate();
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -14,27 +17,22 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
-  const [resetCode, setResetCode] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [resetStep, setResetStep] = useState<'email' | 'code' | 'success'>('email');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [pendingVerification, setPendingVerification] = useState(false);
 
-  // Add CAPTCHA div on mount
   useEffect(() => {
-    if (!document.getElementById('clerk-captcha')) {
-      const captchaDiv = document.createElement('div');
-      captchaDiv.id = 'clerk-captcha';
-      captchaDiv.style.display = 'none';
-      document.body.appendChild(captchaDiv);
+    if (userLoaded && authLoaded && isSignedIn) {
+      navigate('/dashboard', { replace: true });
     }
+  }, [isSignedIn, userLoaded, authLoaded, navigate]);
 
-    return () => {
-      const captchaDiv = document.getElementById('clerk-captcha');
-      if (captchaDiv && captchaDiv.parentElement === document.body) {
-        document.body.removeChild(captchaDiv);
-      }
-    };
-  }, []);
+  if (!userLoaded || !authLoaded) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-white">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
 
   if (isSignedIn) {
     return <Navigate to="/dashboard" replace />;
@@ -47,142 +45,96 @@ export default function LoginPage() {
 
     try {
       if (!isSignUp) {
-        const result = await signIn?.create({
+        if (!signIn) throw new Error('Sign-in service not available');
+        
+        const result = await signIn.create({
           identifier: email,
           password,
         });
 
-        if (result?.status === 'complete') {
-          await setActive?.({ session: result.createdSessionId });
+        if (result.status === 'complete') {
+          await setActive!({ session: result.createdSessionId });
+          setTimeout(() => navigate('/dashboard', { replace: true }), 500);
+        } else {
+          setError('Sign-in incomplete. Please try again.');
         }
       } else {
-        const result = await signUp?.create({
+        if (!signUp) throw new Error('Sign-up service not available');
+        
+        const result = await signUp.create({
           emailAddress: email,
           password,
           firstName: name.split(' ')[0],
           lastName: name.split(' ').slice(1).join(' ') || undefined,
         });
 
-        if (result?.status === 'complete') {
-          await setActiveSignUp?.({ session: result.createdSessionId });
-        } else if (result?.status === 'missing_requirements') {
-          await signUp?.prepareEmailAddressVerification({ strategy: 'email_code' });
+        if (result.status === 'complete') {
+          await setActiveSignUp!({ session: result.createdSessionId });
+          setTimeout(() => navigate('/dashboard', { replace: true }), 500);
+        } else if (result.status === 'missing_requirements') {
+          await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+          setPendingVerification(true);
+          setError('');
+        } else {
+          setError('Sign-up incomplete. Please check your information.');
         }
       }
-    } catch (err: any) {
-      console.error('Email auth error:', err);
-      setError(err?.errors?.[0]?.message || 'Something went wrong. Please try again.');
+    } catch (err) {
+      const error = err as { errors?: Array<{ message?: string }>; message?: string };
+      const errorMessage = error?.errors?.[0]?.message || error?.message || 'Authentication failed';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogleAuth = async () => {
-    setLoading(true);
-    setError('');
-    
-    try {
-      const redirectUrl = window.location.origin + '/sso-callback';
-      const redirectUrlComplete = window.location.origin + '/dashboard';
-      
-      console.log('Starting Google OAuth with:', { redirectUrl, redirectUrlComplete });
-      
-      await signIn?.authenticateWithRedirect({
-        strategy: 'oauth_google',
-        redirectUrl,
-        redirectUrlComplete,
-      });
-    } catch (err: any) {
-      console.error('Google auth error:', err);
-      setError('Failed to connect with Google. Please try again.');
-      setLoading(false);
-    }
-  };
-
-  const handleGithubAuth = async () => {
-    setLoading(true);
-    setError('');
-    
-    try {
-      const redirectUrl = window.location.origin + '/sso-callback';
-      const redirectUrlComplete = window.location.origin + '/dashboard';
-      
-      console.log('Starting GitHub OAuth with:', { redirectUrl, redirectUrlComplete });
-      
-      await signIn?.authenticateWithRedirect({
-        strategy: 'oauth_github',
-        redirectUrl,
-        redirectUrlComplete,
-      });
-    } catch (err: any) {
-      console.error('GitHub auth error:', err);
-      setError('Failed to connect with GitHub. Please try again.');
-      setLoading(false);
-    }
-  };
-
-  const handleForgotPassword = async () => {
-    if (!email) {
-      setError('Please enter your email address');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      await signIn?.create({
-        strategy: 'reset_password_email_code',
-        identifier: email,
-      });
-
-      setForgotPasswordMode(true);
-      setResetStep('code');
-      setError('');
-    } catch (err: any) {
-      setError(err?.errors?.[0]?.message || 'Failed to send reset email');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResetPassword = async (e: React.FormEvent) => {
+  const handleVerifyEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      const result = await signIn?.attemptFirstFactor({
-        strategy: 'reset_password_email_code',
-        code: resetCode,
-        password: newPassword,
-      });
+      if (!signUp) throw new Error('Sign-up service not available');
+      
+      const result = await signUp.attemptEmailAddressVerification({ code: verificationCode });
 
-      if (result?.status === 'complete') {
-        await setActive?.({ session: result.createdSessionId });
-        setResetStep('success');
-        setTimeout(() => {
-          // Will redirect via isSignedIn check
-        }, 2000);
+      if (result.status === 'complete') {
+        await setActiveSignUp!({ session: result.createdSessionId });
+        setTimeout(() => navigate('/dashboard', { replace: true }), 500);
+      } else {
+        setError('Verification incomplete. Please try again.');
       }
-    } catch (err: any) {
-      setError(err?.errors?.[0]?.message || 'Failed to reset password');
+    } catch (err) {
+      const error = err as { errors?: Array<{ message?: string }>; message?: string };
+      const errorMessage = error?.errors?.[0]?.message || error?.message || 'Invalid verification code';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleBackToLogin = () => {
-    setForgotPasswordMode(false);
-    setResetStep('email');
-    setResetCode('');
-    setNewPassword('');
+  const handleOAuthAuth = async (strategy: 'oauth_google' | 'oauth_github') => {
+    setLoading(true);
     setError('');
+    
+    try {
+      if (!signUp) throw new Error('Sign-up service not available');
+
+      await signUp.authenticateWithRedirect({
+        strategy,
+        redirectUrl: window.location.origin + '/dashboard',
+        redirectUrlComplete: window.location.origin + '/dashboard',
+      });
+    } catch (err) {
+      const error = err as { errors?: Array<{ message?: string }>; message?: string };
+      const errorMessage = error?.errors?.[0]?.message || error?.message || 'OAuth authentication failed';
+      setError(errorMessage);
+      setLoading(false);
+    }
   };
 
   return (
     <div className="h-screen w-full flex overflow-hidden bg-white">
-      {/* Left Panel - Minimal Illustration */}
       <div className="hidden lg:flex lg:w-1/2 relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-12 flex-col justify-between overflow-hidden">
         <div className="absolute inset-0 opacity-5" style={{
           backgroundImage: 'linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px)',
@@ -199,72 +151,11 @@ export default function LoginPage() {
 
           <div className="space-y-4">
             <h2 className="text-4xl font-bold leading-tight text-white">
-              AI-Powered
-              <br />
-              <span className="text-indigo-400">PR Reviews</span>
+              AI-Powered<br /><span className="text-indigo-400">PR Reviews</span>
             </h2>
             <p className="text-lg text-slate-400 max-w-md">
               Automated code reviews for your GitHub pull requests. Get intelligent feedback instantly.
             </p>
-          </div>
-        </div>
-
-        <div className="relative z-10 flex items-center justify-center flex-1 my-8">
-          <div className="relative w-full max-w-lg">
-            <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50 shadow-2xl">
-              <div className="space-y-5">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 bg-indigo-500/20 rounded-lg flex items-center justify-center">
-                    <GitBranch className="w-5 h-5 text-indigo-400" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="h-3 bg-slate-700/70 rounded w-3/4 mb-2"></div>
-                    <div className="h-2 bg-slate-700/50 rounded w-1/2"></div>
-                  </div>
-                  <div className="px-3 py-1 bg-green-500/20 rounded-full border border-green-500/30">
-                    <span className="text-xs text-green-400 font-medium">Approved</span>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30 font-mono text-xs space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-red-400">-</span>
-                    <span className="text-slate-500">const data = getData()</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-green-400">+</span>
-                    <span className="text-slate-400">const data = await getData()</span>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 bg-indigo-500/10 rounded-lg p-4 border border-indigo-500/20">
-                  <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
-                    <Zap className="w-4 h-4 text-white" />
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-indigo-400">AI Review</span>
-                      <span className="text-xs text-slate-500">Just now</span>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="h-2 bg-indigo-500/20 rounded w-full"></div>
-                      <div className="h-2 bg-indigo-500/20 rounded w-4/5"></div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4 pt-2">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-400" />
-                    <span className="text-sm text-slate-400">3 checks passed</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-indigo-400" />
-                    <span className="text-sm text-slate-400">5 comments</span>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -275,7 +166,6 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right Panel - Auth Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 bg-white relative">
         <div className="absolute top-6 left-6 lg:hidden">
           <div className="flex items-center gap-2">
@@ -287,91 +177,71 @@ export default function LoginPage() {
         </div>
 
         <div className="w-full max-w-md pt-20 lg:pt-0">
-          <div className="text-center mb-8">
+          {!pendingVerification && (
+            <div className="flex justify-center mb-2">
+              <div className="relative bg-gray-100 rounded-full p-1 inline-flex">
+                <div
+                  className="absolute top-1 bottom-1 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-lg transition-all duration-300"
+                  style={{
+                    left: isSignUp ? '50%' : '4px',
+                    right: isSignUp ? '4px' : '50%',
+                  }}
+                />
+                <button
+                  onClick={() => !isSignUp && setIsSignUp(false)}
+                  className={`relative z-10 px-8 py-2.5 rounded-full font-medium transition-colors duration-200 ${
+                    !isSignUp ? 'text-white' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Sign In
+                </button>
+                <button
+                  onClick={() => isSignUp || setIsSignUp(true)}
+                  className={`relative z-10 px-8 py-2.5 rounded-full font-medium transition-colors duration-200 ${
+                    isSignUp ? 'text-white' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Sign Up
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="text-center mb-4">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-              {isSignUp ? 'Create an Account' : 'Welcome Back'}
+              {pendingVerification ? 'Verify Your Email' : isSignUp ? 'Create an Account' : 'Welcome Back'}
             </h2>
             <p className="text-gray-600">
-              {isSignUp
+              {pendingVerification
+                ? 'We sent a verification code to your email'
+                : isSignUp
                 ? 'Start reviewing your GitHub PRs with AI'
                 : 'Sign in to access your AI-powered PR reviews'}
             </p>
           </div>
 
-          {!forgotPasswordMode ? (
-            <form onSubmit={handleEmailAuth} className="space-y-4 mb-6">
-              {isSignUp && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 text-gray-900"
-                    placeholder="John Doe"
-                  />
+          {pendingVerification ? (
+            <form onSubmit={handleVerifyEmail} className="space-y-4 mb-6">
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Mail className="w-8 h-8 text-indigo-600" />
                 </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 text-gray-900"
-                    placeholder="you@example.com"
-                  />
-                </div>
+                <p className="text-sm text-gray-600">
+                  We sent a verification code to <span className="font-medium">{email}</span>
+                </p>
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Password
-                  </label>
-                  {!isSignUp && (
-                    <button
-                      type="button"
-                      onClick={handleForgotPassword}
-                      disabled={loading}
-                      className="text-sm font-medium text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
-                    >
-                      Forgot password?
-                    </button>
-                  )}
-                </div>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={8}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 text-gray-900"
-                    placeholder="••••••••"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-                {isSignUp && (
-                  <p className="mt-2 text-xs text-gray-500">
-                    Must be at least 8 characters long
-                  </p>
-                )}
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Verification Code</label>
+                <input
+                  type="text"
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value)}
+                  required
+                  maxLength={6}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 text-gray-900 text-center text-2xl tracking-widest font-mono"
+                  placeholder="000000"
+                />
               </div>
 
               {error && (
@@ -385,120 +255,86 @@ export default function LoginPage() {
                 disabled={loading}
                 className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-medium py-3 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  isSignUp ? 'Create Account' : 'Sign In'
-                )}
+                {loading ? <><Loader2 className="w-5 h-5 animate-spin" />Verifying...</> : 'Verify Email'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setPendingVerification(false); setVerificationCode(''); setError(''); }}
+                className="w-full text-sm text-gray-600 hover:text-gray-900 font-medium"
+              >
+                Back to sign up
               </button>
             </form>
           ) : (
-            <div className="space-y-4 mb-6">
-              {resetStep === 'code' && (
-                <form onSubmit={handleResetPassword} className="space-y-4">
-                  <div className="text-center mb-6">
-                    <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <Mail className="w-8 h-8 text-indigo-600" />
-                    </div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">Check Your Email</h3>
-                    <p className="text-sm text-gray-600">
-                      We sent a verification code to <span className="font-medium">{email}</span>
-                    </p>
-                  </div>
-
+            <>
+              <form onSubmit={handleEmailAuth} className="space-y-4 mb-6">
+                {isSignUp && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Verification Code
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Full Name</label>
                     <input
                       type="text"
-                      value={resetCode}
-                      onChange={(e) => setResetCode(e.target.value)}
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
                       required
-                      maxLength={6}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 text-gray-900 text-center text-2xl tracking-widest font-mono"
-                      placeholder="000000"
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 text-gray-900"
+                      placeholder="John Doe"
                     />
                   </div>
+                )}
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      New Password
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        required
-                        minLength={8}
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 text-gray-900"
-                        placeholder="••••••••"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
-                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                      </button>
-                    </div>
-                    <p className="mt-2 text-xs text-gray-500">
-                      Must be at least 8 characters long
-                    </p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Email Address</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 text-gray-900"
+                      placeholder="you@example.com"
+                    />
                   </div>
-
-                  {error && (
-                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                      <p className="text-sm text-red-600">{error}</p>
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-medium py-3 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Resetting...
-                      </>
-                    ) : (
-                      'Reset Password'
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleBackToLogin}
-                    className="w-full text-sm text-gray-600 hover:text-gray-900 font-medium"
-                  >
-                    Back to login
-                  </button>
-                </form>
-              )}
-
-              {resetStep === 'success' && (
-                <div className="text-center py-8">
-                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <CheckCircle className="w-8 h-8 text-green-600" />
-                  </div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">Password Reset Successful!</h3>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Your password has been reset. Redirecting to dashboard...
-                  </p>
-                  <Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600" />
                 </div>
-              )}
-            </div>
-          )}
 
-          {!forgotPasswordMode && (
-            <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      minLength={8}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200 text-gray-900"
+                      placeholder="••••••••"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-sm text-red-600">{error}</p>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-medium py-3 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loading ? <><Loader2 className="w-5 h-5 animate-spin" />Processing...</> : isSignUp ? 'Create Account' : 'Sign In'}
+                </button>
+              </form>
+
               <div className="relative mb-6">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-gray-200"></div>
@@ -510,7 +346,7 @@ export default function LoginPage() {
 
               <div className="space-y-3 mb-6">
                 <button
-                  onClick={handleGithubAuth}
+                  onClick={() => handleOAuthAuth('oauth_github')}
                   disabled={loading}
                   className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
                 >
@@ -518,7 +354,7 @@ export default function LoginPage() {
                   Continue with GitHub
                 </button>
                 <button
-                  onClick={handleGoogleAuth}
+                  onClick={() => handleOAuthAuth('oauth_google')}
                   disabled={loading}
                   className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -530,21 +366,6 @@ export default function LoginPage() {
                   </svg>
                   Continue with Google
                 </button>
-              </div>
-
-              <div className="text-center">
-                <p className="text-sm text-gray-600">
-                  {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-                  <button
-                    onClick={() => {
-                      setIsSignUp(!isSignUp);
-                      setError('');
-                    }}
-                    className="font-medium text-indigo-600 hover:text-indigo-700"
-                  >
-                    {isSignUp ? 'Sign in' : 'Sign up'}
-                  </button>
-                </p>
               </div>
             </>
           )}
