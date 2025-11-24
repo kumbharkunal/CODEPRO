@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import User from '../models/User';
+import Team from '../models/Team';
 import { generateToken } from "../utils/jwt";
 
 export const login = async (req: Request, res: Response) => {
@@ -7,12 +8,25 @@ export const login = async (req: Request, res: Response) => {
         const { email, clerkId } = req.body;
         let user = await User.findOne({ $or: [{ email }, { clerkId }] });
         if (!user) {
+            // Fresh signups are always admin with their own team
             user = new User({
                 clerkId: clerkId || `temp_${Date.now()}`,
                 email,
                 name: email.split('@')[0],
-                role: 'viewer'
+                role: 'admin' // Fresh users are always admin
             });
+            await user.save();
+
+            // Create team automatically for every new admin
+            const team = new Team({
+                name: `${user.name}'s Team`,
+                adminId: user._id,
+                members: [user._id],
+            });
+            await team.save();
+
+            // Link user to team
+            user.teamId = team._id;
             await user.save();
         }
 

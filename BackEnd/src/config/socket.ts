@@ -10,11 +10,13 @@ export const initializeSocket = (httpServer: HTTPServer) => {
             methods: ['GET', 'POST'],
             credentials: true,
         },
+        pingTimeout: 60000, // 60s before considering connection dead
+        pingInterval: 25000, // Ping every 25s
     });
 
     io.on('connection', (socket) => {
         console.log('✅ Client connected:', socket.id);
-        
+
         // Log authentication data for debugging
         const authToken = socket.handshake.auth?.token;
         console.log('🔐 Auth token present:', !!authToken);
@@ -22,23 +24,28 @@ export const initializeSocket = (httpServer: HTTPServer) => {
         socket.on('join-room', (roomId: string) => {
             socket.join(roomId);
             console.log(`🚪 Client ${socket.id} joined room: ${roomId}`);
-            
+
             // Get the number of clients in this room
             const room = io.sockets.adapter.rooms.get(roomId);
             const clientCount = room ? room.size : 0;
             console.log(`📊 Room "${roomId}" now has ${clientCount} client(s)`);
-            
+
             // Send confirmation back to client
-            socket.emit('room-joined', { 
-                roomId, 
+            socket.emit('room-joined', {
+                roomId,
                 socketId: socket.id,
-                success: true 
+                success: true
             });
         });
 
         socket.on('leave-room', (roomId: string) => {
             socket.leave(roomId);
             console.log(`🚪 Client ${socket.id} left room: ${roomId}`);
+        });
+
+        // Heartbeat ping/pong for connection health monitoring
+        socket.on('ping', () => {
+            socket.emit('pong');
         });
 
         socket.on('disconnect', () => {

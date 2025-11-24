@@ -1,7 +1,8 @@
 import { useSignIn, useSignUp, useUser, useAuth } from '@clerk/clerk-react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Code2, Mail, Eye, EyeOff, Loader2, Github } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function LoginPage() {
   const { isSignedIn, isLoaded: userLoaded } = useUser();
@@ -9,7 +10,9 @@ export default function LoginPage() {
   const { signIn, setActive } = useSignIn();
   const { signUp, setActive: setActiveSignUp } = useSignUp();
   const navigate = useNavigate();
-  
+  const [searchParams] = useSearchParams();
+  const redirect = searchParams.get('redirect') || '/dashboard';
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -20,11 +23,12 @@ export default function LoginPage() {
   const [verificationCode, setVerificationCode] = useState('');
   const [pendingVerification, setPendingVerification] = useState(false);
 
+  // Redirect if already signed in
   useEffect(() => {
     if (userLoaded && authLoaded && isSignedIn) {
-      navigate('/dashboard', { replace: true });
+      navigate(redirect, { replace: true });
     }
-  }, [isSignedIn, userLoaded, authLoaded, navigate]);
+  }, [isSignedIn, userLoaded, authLoaded, navigate, redirect]);
 
   if (!userLoaded || !authLoaded) {
     return (
@@ -35,7 +39,7 @@ export default function LoginPage() {
   }
 
   if (isSignedIn) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={redirect} replace />;
   }
 
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -46,7 +50,7 @@ export default function LoginPage() {
     try {
       if (!isSignUp) {
         if (!signIn) throw new Error('Sign-in service not available');
-        
+
         const result = await signIn.create({
           identifier: email,
           password,
@@ -54,13 +58,13 @@ export default function LoginPage() {
 
         if (result.status === 'complete') {
           await setActive!({ session: result.createdSessionId });
-          setTimeout(() => navigate('/dashboard', { replace: true }), 500);
+          setTimeout(() => navigate(redirect, { replace: true }), 500);
         } else {
           setError('Sign-in incomplete. Please try again.');
         }
       } else {
         if (!signUp) throw new Error('Sign-up service not available');
-        
+
         const result = await signUp.create({
           emailAddress: email,
           password,
@@ -70,7 +74,7 @@ export default function LoginPage() {
 
         if (result.status === 'complete') {
           await setActiveSignUp!({ session: result.createdSessionId });
-          setTimeout(() => navigate('/dashboard', { replace: true }), 500);
+          setTimeout(() => navigate(redirect, { replace: true }), 500);
         } else if (result.status === 'missing_requirements') {
           await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
           setPendingVerification(true);
@@ -95,12 +99,12 @@ export default function LoginPage() {
 
     try {
       if (!signUp) throw new Error('Sign-up service not available');
-      
+
       const result = await signUp.attemptEmailAddressVerification({ code: verificationCode });
 
       if (result.status === 'complete') {
         await setActiveSignUp!({ session: result.createdSessionId });
-        setTimeout(() => navigate('/dashboard', { replace: true }), 500);
+        setTimeout(() => navigate(redirect, { replace: true }), 500);
       } else {
         setError('Verification incomplete. Please try again.');
       }
@@ -113,23 +117,101 @@ export default function LoginPage() {
     }
   };
 
+  // Helper to get user-friendly OAuth error messages
+  const getOAuthErrorMessage = (error: any, provider: string): string => {
+    const errorCode = error?.errors?.[0]?.code || error?.code;
+    const errorMessage = error?.errors?.[0]?.message || error?.message || '';
+
+    // User canceled authentication
+    if (errorCode === 'oauth_access_denied' || errorMessage.includes('access_denied')) {
+      return `${provider} sign-in was canceled. Please try again when ready.`;
+    }
+
+    // Configuration issues
+    if (errorCode === 'oauth_callback_error' || errorMessage.includes('callback')) {
+      return `${provider} authentication is not properly configured. Please contact support.`;
+    }
+
+    // Email already exists with different provider
+    if (errorCode === 'email_exists' || errorMessage.includes('already exists')) {
+      return `This email is already registered with a different sign-in method. Please try signing in with your original method.`;
+    }
+
+    // Network or connection issues
+    if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+      return 'Connection failed. Please check your internet connection and try again.';
+    }
+
+    // Rate limiting
+    if (errorCode === 'rate_limit_exceeded' || errorMessage.includes('rate limit')) {
+      return 'Too many sign-in attempts. Please wait a moment and try again.';
+    }
+
+    // Permission denied
+    if (errorMessage.includes('permission') || errorMessage.includes('scope')) {
+      return `Required permissions were not granted. Please authorize all requested permissions to continue.`;
+    }
+
+    // Generic fallback
+    return `${provider} authentication failed: ${errorMessage || 'Please try again or use a different sign-in method.'}`;
+  };
+
   const handleOAuthAuth = async (strategy: 'oauth_google' | 'oauth_github') => {
     setLoading(true);
     setError('');
-    
-    try {
-      if (!signUp) throw new Error('Sign-up service not available');
 
-      await signUp.authenticateWithRedirect({
+    const provider = strategy === 'oauth_github' ? 'GitHub' : 'Google';
+
+    try {
+      // For OAuth, ALWAYS use signIn (not signUp) because OAuth handles both new and existing users
+      // OAuth will automatically create an account if user doesn't exist, or sign in if they do
+      if (!signIn) {
+        throw new Error('Sign-in service not available. Please refresh the page and try again.');
+      }
+
+      console.log(`Initiating ${provider} OAuth ${isSignUp ? 'sign-up' : 'sign-in'}...`);
+      console.log(`Using signIn method (OAuth handles both new and existing users)`);
+
+      // Build redirect URL with oauth_attempt parameter to track the flow
+      const redirectUrlWithParams = `${window.location.origin}${redirect}?oauth_attempt=${isSignUp ? 'signup' : 'signin'}`;
+
+      // Use signIn for OAuth (works for both new and existing users)
+      await signIn.authenticateWithRedirect({
         strategy,
-        redirectUrl: window.location.origin + '/dashboard',
-        redirectUrlComplete: window.location.origin + '/dashboard',
+        redirectUrl: redirectUrlWithParams,
+        redirectUrlComplete: redirectUrlWithParams,
       });
-    } catch (err) {
-      const error = err as { errors?: Array<{ message?: string }>; message?: string };
-      const errorMessage = error?.errors?.[0]?.message || error?.message || 'OAuth authentication failed';
-      setError(errorMessage);
+
+      // Note: This code won't execute because authenticateWithRedirect redirects the page
+      // Loading state will remain true during redirect
+
+    } catch (err: any) {
+      console.error(`${provider} OAuth ${isSignUp ? 'sign-up' : 'sign-in'} error:`, err);
+
+      // Parse and display user-friendly error message
+      const errorMessage = getOAuthErrorMessage(err, provider);
+      const fullError = `${errorMessage} (${isSignUp ? 'Sign Up' : 'Sign In'} mode)`;
+      setError(fullError);
+
+      // Show toast notification for error
+      toast.error(errorMessage, {
+        duration: 5000,
+        icon: '❌',
+      });
+
       setLoading(false);
+
+      // Log detailed error for debugging
+      if (process.env.NODE_ENV === 'development') {
+        console.error('OAuth Error Details:', {
+          error: err,
+          code: err?.errors?.[0]?.code || err?.code,
+          message: err?.errors?.[0]?.message || err?.message,
+          strategy,
+          mode: isSignUp ? 'sign-up' : 'sign-in',
+          authMethodUsed: 'signIn (OAuth handles both new and existing users)',
+        });
+      }
     }
   };
 
@@ -188,18 +270,16 @@ export default function LoginPage() {
                   }}
                 />
                 <button
-                  onClick={() => !isSignUp && setIsSignUp(false)}
-                  className={`relative z-10 px-8 py-2.5 rounded-full font-medium transition-colors duration-200 ${
-                    !isSignUp ? 'text-white' : 'text-gray-600 hover:text-gray-900'
-                  }`}
+                  onClick={() => setIsSignUp(false)}
+                  className={`relative z-10 px-8 py-2.5 rounded-full font-medium transition-colors duration-200 ${!isSignUp ? 'text-white' : 'text-gray-600 hover:text-gray-900'
+                    }`}
                 >
                   Sign In
                 </button>
                 <button
-                  onClick={() => isSignUp || setIsSignUp(true)}
-                  className={`relative z-10 px-8 py-2.5 rounded-full font-medium transition-colors duration-200 ${
-                    isSignUp ? 'text-white' : 'text-gray-600 hover:text-gray-900'
-                  }`}
+                  onClick={() => setIsSignUp(true)}
+                  className={`relative z-10 px-8 py-2.5 rounded-full font-medium transition-colors duration-200 ${isSignUp ? 'text-white' : 'text-gray-600 hover:text-gray-900'
+                    }`}
                 >
                   Sign Up
                 </button>
@@ -215,8 +295,8 @@ export default function LoginPage() {
               {pendingVerification
                 ? 'We sent a verification code to your email'
                 : isSignUp
-                ? 'Start reviewing your GitHub PRs with AI'
-                : 'Sign in to access your AI-powered PR reviews'}
+                  ? 'Start reviewing your GitHub PRs with AI'
+                  : 'Sign in to access your AI-powered PR reviews'}
             </p>
           </div>
 

@@ -1,49 +1,23 @@
-import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { repositoryService } from '@/services/repositoryService';
 import { Repository } from '@/types';
 import { Github, Trash2, Plus, GitBranch, Lock, Unlock, CheckCircle2, XCircle, ExternalLink } from 'lucide-react';
-import toast from 'react-hot-toast';
 import { githubService } from '@/services/githubService';
-import { useAppSelector } from '@/store/hooks';
 import AdminOnly from '@/components/auth/AdminOnly';
+import { useRole } from '@/hooks/useRole';
+import { useRepositories, useDeleteRepository } from '@/hooks/useRepositories';
 
 export default function RepositoriesPage() {
-  const [repositories, setRepositories] = useState<Repository[]>([]);
-  const [loading, setLoading] = useState(true);
-  const user = useAppSelector(state => state.auth.user);
-  const isAdmin = user?.role === 'admin';
+  const { data: repositories = [], isLoading: loading } = useRepositories();
+  const { mutate: deleteRepository } = useDeleteRepository();
+  const { isAdmin } = useRole();
 
-  useEffect(() => {
-    fetchRepositories();
-  }, []);
-
-  const fetchRepositories = async () => {
-    try {
-      const data = await repositoryService.getAllRepositories();
-      setRepositories(data);
-    } catch (error) {
-      console.error('Error fetching repositories:', error);
-      toast.error('Failed to load repositories');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (!confirm('Are you sure you want to disconnect this repository?')) {
       return;
     }
-
-    try {
-      await repositoryService.deleteRepository(id);
-      setRepositories(repositories.filter(r => r._id !== id));
-      toast.success('Repository disconnected');
-    } catch (error) {
-      toast.error('Failed to disconnect repository');
-    }
+    deleteRepository(id);
   };
 
   if (loading) {
@@ -67,7 +41,7 @@ export default function RepositoriesPage() {
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary/90 to-primary/80 p-6 sm:p-8 lg:p-10 text-primary-foreground shadow-2xl">
           <div className="absolute inset-0 bg-grid-white/10 [mask-image:linear-gradient(0deg,transparent,black)]"></div>
           <div className="absolute inset-0 bg-gradient-to-br from-transparent via-white/5 to-transparent"></div>
-          
+
           <div className="relative flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div className="space-y-2">
               <div className="flex items-center gap-3">
@@ -81,7 +55,7 @@ export default function RepositoriesPage() {
               </p>
             </div>
             <AdminOnly>
-              <Button 
+              <Button
                 onClick={() => githubService.startOAuth()}
                 size="lg"
                 className="bg-white text-primary hover:bg-white/90 shadow-xl hover:shadow-2xl transition-all"
@@ -103,19 +77,19 @@ export default function RepositoriesPage() {
               <div className="space-y-3">
                 <p className="text-xl sm:text-2xl font-semibold">No Repositories Connected</p>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                  Connect your first GitHub repository to start reviewing code with AI-powered analysis
+                  {isAdmin ? 'Connect your first GitHub repository to start reviewing code with AI-powered analysis' : 'Ask an admin to connect repositories for the team'}
                 </p>
               </div>
-              <AdminOnly>
-                <Button 
-                  onClick={() => githubService.startOAuth()} 
+              {isAdmin && (
+                <Button
+                  onClick={() => githubService.startOAuth()}
                   size="lg"
                   className="bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-lg hover:shadow-xl transition-all"
                 >
                   <Plus className="w-5 h-5 mr-2" />
                   Connect Repository
                 </Button>
-              </AdminOnly>
+              )}
             </CardContent>
           </Card>
         ) : (
@@ -124,7 +98,7 @@ export default function RepositoriesPage() {
               <RepositoryCard
                 key={repo._id}
                 repository={repo}
-                onDelete={isAdmin ? () => handleDelete(repo._id) : undefined}
+                onDelete={() => handleDelete(repo._id)}
               />
             ))}
           </div>
@@ -139,14 +113,14 @@ function RepositoryCard({
   onDelete
 }: {
   repository: Repository;
-  onDelete?: () => void;
+  onDelete: () => void;
 }) {
   const isActive = repository.webhookActive;
-  
+
   return (
     <Card className="group relative overflow-hidden border-2 hover:border-primary/30 transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
       <div className={`absolute inset-0 bg-gradient-to-br ${isActive ? 'from-emerald-500/10 to-emerald-500/5' : 'from-secondary/50 to-transparent'} opacity-0 group-hover:opacity-100 transition-opacity`}></div>
-      
+
       <CardHeader className="relative">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -162,7 +136,7 @@ function RepositoryCard({
               </CardDescription>
             </div>
           </div>
-          <Badge 
+          <Badge
             variant={isActive ? 'default' : 'secondary'}
             className={`${isActive ? 'bg-emerald-500 hover:bg-emerald-600' : ''} flex-shrink-0`}
           >
@@ -180,7 +154,7 @@ function RepositoryCard({
           </Badge>
         </div>
       </CardHeader>
-      
+
       <CardContent className="relative space-y-4">
         {repository.description && (
           <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
@@ -197,7 +171,7 @@ function RepositoryCard({
             </div>
             <div className="text-sm font-semibold truncate">{repository.defaultBranch}</div>
           </div>
-          
+
           <div className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 p-3 rounded-lg border border-purple-500/20">
             <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
               {repository.isPrivate ? (
@@ -213,10 +187,10 @@ function RepositoryCard({
 
         {/* Action Buttons */}
         <div className="flex gap-2 pt-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="flex-1 hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-all" 
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-all"
             asChild
           >
             <a
@@ -228,7 +202,7 @@ function RepositoryCard({
               GitHub
             </a>
           </Button>
-          {onDelete && (
+          <AdminOnly>
             <Button
               variant="destructive"
               size="sm"
@@ -238,7 +212,7 @@ function RepositoryCard({
               <Trash2 className="w-4 h-4 mr-2" />
               Disconnect
             </Button>
-          )}
+          </AdminOnly>
         </div>
       </CardContent>
     </Card>

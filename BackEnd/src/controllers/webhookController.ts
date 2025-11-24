@@ -6,6 +6,7 @@ import { getIO } from '../config/socket';
 import { getPullRequestFiles, getFileContent, postReviewComment, formatReviewAsMarkdown } from '../config/github';
 import { analyzeMultipleFiles } from '../config/gemini';
 import { any } from 'zod';
+import { broadcastToUserAndTeam } from '../utils/socketBroadcast';
 
 export const handleGitHubWebhook = async (req: Request, res: Response) => {
   try {
@@ -84,11 +85,19 @@ const handlePullRequestEvent = async (payload: any) => {
       return;
     }
 
-    console.log(`✅ Found repository in database: ${dbRepository.name}`);
+    console.log(`✅ Found repository in database: ${dbRepository.name}`)
+
+      ;
 
     // ✅ FIX: Extract user ID properly
     const connectedByUser = dbRepository.connectedBy as any;
     const userId = connectedByUser._id || connectedByUser;
+
+    // ✅ FIX: Get teamId from repository
+    if (!dbRepository.teamId) {
+      console.error(`❌ Repository ${dbRepository.name} has no teamId - cannot create review`);
+      return;
+    }
 
     // Create review record
     const newReview = <any>new Review({
@@ -98,6 +107,7 @@ const handlePullRequestEvent = async (payload: any) => {
       pullRequestUrl: pullRequest.html_url,
       author: pullRequest.user.login,
       reviewedBy: userId, // ✅ FIX: Use extracted userId
+      teamId: dbRepository.teamId, // ✅ CRITICAL FIX: Add teamId from repository
       status: 'pending',
     });
 
@@ -105,32 +115,19 @@ const handlePullRequestEvent = async (payload: any) => {
 
     console.log(`✅ Review created: ${newReview._id}`);
 
-    // Send WebSocket notification
-    try {
-      const io = getIO();
-      const roomId = `user_${userId.toString()}`;
-      
-      // Check if there are any clients in the room
-      const room = io.sockets.adapter.rooms.get(roomId);
-      const clientCount = room ? room.size : 0;
-      console.log(`📊 Sending notification to room "${roomId}" with ${clientCount} client(s)`);
-
-      io.to(roomId).emit('review-created', {
+    // Send WebSocket notification to both user and team
+    broadcastToUserAndTeam(
+      userId.toString(),
+      dbRepository.teamId,
+      'review-created',
+      {
         reviewId: newReview._id,
         pullRequestTitle: pullRequest.title,
         pullRequestNumber: pullRequest.number,
         repository: repository.full_name,
         timestamp: new Date().toISOString(),
-      });
-
-      console.log(`✅ WebSocket notification sent for new review to ${clientCount} client(s)`);
-      
-      if (clientCount === 0) {
-        console.warn(`⚠️ WARNING: No clients connected in room ${roomId}. User may not receive notification.`);
       }
-    } catch (socketError) {
-      console.error('❌ Error sending WebSocket notification:', socketError);
-    }
+    );
 
     // ✅ FIX: Check if token exists
     if (!dbRepository.githubAccessToken) {
@@ -194,28 +191,18 @@ const processPullRequestReview = async (
     const reviewedByUser = review.reviewedBy as any;
     const userId = reviewedByUser._id || reviewedByUser;
 
-    // Send WebSocket update
-    try {
-      const io = getIO();
-      const roomId = `user_${userId.toString()}`;
-      
-      const room = io.sockets.adapter.rooms.get(roomId);
-      const clientCount = room ? room.size : 0;
-      console.log(`📊 Sending in_progress update to room "${roomId}" with ${clientCount} client(s)`);
-
-      io.to(roomId).emit('review-updated', {
+    // Send WebSocket update to user and team
+    broadcastToUserAndTeam(
+      userId.toString(),
+      review.teamId,
+      'review-updated',
+      {
         reviewId: review._id,
         status: 'in_progress',
         message: 'AI is analyzing your code...',
         timestamp: new Date().toISOString(),
-      });
-      
-      if (clientCount === 0) {
-        console.warn(`⚠️ WARNING: No clients connected in room ${roomId}`);
       }
-    } catch (socketError) {
-      console.error('❌ Error sending WebSocket update:', socketError);
-    }
+    );
 
     // Fetch PR files
     console.log(`📥 Fetching PR files...`);
@@ -232,16 +219,20 @@ const processPullRequestReview = async (
       review.qualityScore = 100;
       await review.save();
 
-      // Send completion notification
-      const io = getIO();
-      io.to(`user_${userId.toString()}`).emit('review-completed', {
-        reviewId: review._id,
-        pullRequestTitle: review.pullRequestTitle,
-        issuesFound: 0,
-        qualityScore: 100,
-        summary: 'No code files to review',
-        timestamp: new Date().toISOString(),
-      });
+      // Send completion notification to user and team
+      broadcastToUserAndTeam(
+        userId.toString(),
+        review.teamId,
+        'review-completed',
+        {
+          reviewId: review._id,
+          pullRequestTitle: review.pullRequestTitle,
+          issuesFound: 0,
+          qualityScore: 100,
+          summary: 'No code files to review',
+          timestamp: new Date().toISOString(),
+        }
+      );
 
       return;
     }
@@ -321,32 +312,20 @@ const processPullRequestReview = async (
 
     console.log(`✅ Review saved to database`);
 
-    // Send completion notification
-    try {
-      const io = getIO();
-      const roomId = `user_${userId.toString()}`;
-      
-      const room = io.sockets.adapter.rooms.get(roomId);
-      const clientCount = room ? room.size : 0;
-      console.log(`📊 Sending completion notification to room "${roomId}" with ${clientCount} client(s)`);
-
-      io.to(roomId).emit('review-completed', {
+    // Send completion notification to user and team
+    broadcastToUserAndTeam(
+      userId.toString(),
+      review.teamId,
+      'review-completed',
+      {
         reviewId: review._id,
         pullRequestTitle: review.pullRequestTitle,
         issuesFound: review.issuesFound,
         qualityScore: review.qualityScore,
         summary: review.summary,
         timestamp: new Date().toISOString(),
-      });
-
-      console.log(`✅ Completion notification sent to ${clientCount} client(s)`);
-      
-      if (clientCount === 0) {
-        console.warn(`⚠️ WARNING: No clients connected in room ${roomId}`);
       }
-    } catch (socketError) {
-      console.error('❌ Error sending completion notification:', socketError);
-    }
+    );
 
     // Post review comment to GitHub
     try {
@@ -380,14 +359,18 @@ const processPullRequestReview = async (
         const reviewedByUser = review.reviewedBy as any;
         const userId = reviewedByUser._id || reviewedByUser;
 
-        // Notify user of failure
-        const io = getIO();
-        io.to(`user_${userId.toString()}`).emit('review-updated', {
-          reviewId: review._id,
-          status: 'failed',
-          message: 'AI review failed',
-          timestamp: new Date().toISOString(),
-        });
+        // Notify user and team of failure
+        broadcastToUserAndTeam(
+          userId.toString(),
+          review.teamId,
+          'review-updated',
+          {
+            reviewId: review._id,
+            status: 'failed',
+            message: 'AI review failed',
+            timestamp: new Date().toISOString(),
+          }
+        );
       }
     } catch (updateError) {
       console.error('❌ Error updating review status:', updateError);

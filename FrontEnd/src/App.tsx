@@ -1,7 +1,9 @@
-import { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect, useState, useRef } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter as Router, Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { useAuth } from '@clerk/clerk-react';
 import { store } from './store/store';
 import { useTheme } from './hooks/useTheme';
@@ -10,6 +12,7 @@ import { SocketProvider } from './contexts/SocketContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import ScrollToTop from './components/ScrollToTop';
 import PricingPage from './pages/PricingPage';
+import { UniversalLoader } from './components/ui/UniversalLoader';
 
 import Layout from './components/layout/Layout';
 import DefaultLayout from './components/layout/DefaultLayout';
@@ -27,9 +30,57 @@ import SettingsPage from './pages/SettingsPage';
 import SubscriptionSuccessPage from './pages/SubscriptionSuccessPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import NotFoundPage from './pages/NotFoundPage';
-import RoleBasedRoute from './components/auth/RoleBasedRoute';
+import AdminOnly from './components/auth/AdminOnly';
+import TeamManagementPage from './pages/TeamManagementPage';
+import AcceptInvitationPage from './pages/AcceptInvitationPage';
 
 function AppContentInner() {
+  const { isSignedIn, isLoaded: authLoaded } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const hasShownOAuthToast = useRef(false);
+
+  console.log('🚀 [App.tsx] AppContentInner rendered, isSignedIn:', isSignedIn);
+
+  // Handle OAuth callback toast - simpler approach using immediate detection
+  useEffect(() => {
+    const oauthAttempt = searchParams.get('oauth_attempt');
+
+    console.log('🔄 [App.tsx] Checking OAuth callback:', {
+      oauthAttempt,
+      hasShownToast: hasShownOAuthToast.current,
+      isSignedIn,
+      authLoaded
+    });
+
+    // If we have an oauth_attempt parameter and haven't shown the toast yet
+    if (oauthAttempt && !hasShownOAuthToast.current && authLoaded) {
+      hasShownOAuthToast.current = true;
+
+      console.log('✅ [App.tsx] Showing OAuth toast for:', oauthAttempt);
+
+      // Show appropriate toast based on OAuth attempt type
+      if (oauthAttempt === 'signup') {
+        toast.success('Welcome back! You already have an account. Signed you in automatically.', {
+          duration: 5000,
+          icon: '👋',
+        });
+      } else if (oauthAttempt === 'signin') {
+        toast.success('Successfully signed in!', {
+          duration: 3000,
+          icon: '✅',
+        });
+      }
+
+      // Clean up URL parameter after a short delay to ensure it's visible
+      setTimeout(() => {
+        const currentParams = new URLSearchParams(window.location.search);
+        currentParams.delete('oauth_attempt');
+        const newUrl = `${window.location.pathname}${currentParams.toString() ? '?' + currentParams.toString() : ''}`;
+        window.history.replaceState({}, '', newUrl);
+      }, 100);
+    }
+  }, [searchParams, authLoaded, isSignedIn]);
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPageWrapper />} />
@@ -38,34 +89,18 @@ function AppContentInner() {
       <Route element={<DefaultLayout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
 
         <Route element={<Layout />}>
           <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
           <Route path="/reviews" element={<ProtectedRoute><ReviewsPage /></ProtectedRoute>} />
           <Route path="/reviews/:id" element={<ProtectedRoute><ReviewDetailPage /></ProtectedRoute>} />
           <Route path="/repositories" element={<ProtectedRoute><RepositoriesPage /></ProtectedRoute>} />
+          <Route path="/team" element={<ProtectedRoute><AdminOnly><TeamManagementPage /></AdminOnly></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+          <Route path="/admin/users" element={<ProtectedRoute><AdminOnly><AdminUsersPage /></AdminOnly></ProtectedRoute>} />
           <Route path="/auth/github/callback" element={<GitHubCallbackPage />} />
-          <Route 
-            path="/repositories/connect" 
-            element={
-              <ProtectedRoute>
-                <RoleBasedRoute allowedRoles={['admin']}>
-                  <ConnectRepositoryPage />
-                </RoleBasedRoute>
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/admin/users" 
-            element={
-              <ProtectedRoute>
-                <RoleBasedRoute allowedRoles={['admin']}>
-                  <AdminUsersPage />
-                </RoleBasedRoute>
-              </ProtectedRoute>
-            } 
-          />
+          <Route path="/repositories/connect" element={<ProtectedRoute><ConnectRepositoryPage /></ProtectedRoute>} />
         </Route>
       </Route>
 
@@ -83,6 +118,15 @@ function LoginPageWrapper() {
 }
 
 function AppContent() {
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 60 * 1000, // 1 minute
+        refetchOnWindowFocus: false,
+      },
+    },
+  }));
+
   const { theme } = useTheme();
   const { isLoaded } = useAuth();
   useClerkAuth();
@@ -92,47 +136,42 @@ function AppContent() {
   }, [theme]);
 
   if (!isLoaded) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-white dark:bg-gray-900">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-lg text-gray-900 dark:text-gray-100">Loading...</p>
-        </div>
-      </div>
-    );
+    return <UniversalLoader />;
   }
 
   return (
     <Router>
-      <ScrollToTop />
-      <SocketProvider>
-        <div className="min-h-screen bg-background text-foreground">
-          <Toaster
-            position="top-right"
-            toastOptions={{
-              duration: 3000,
-              style: {
-                background: theme === 'dark' ? '#1f2937' : '#ffffff',
-                color: theme === 'dark' ? '#f9fafb' : '#111827',
-                border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
-              },
-              success: {
-                iconTheme: {
-                  primary: '#10b981',
-                  secondary: '#ffffff',
+      <QueryClientProvider client={queryClient}>
+        <ScrollToTop />
+        <SocketProvider>
+          <div className="min-h-screen bg-background text-foreground">
+            <Toaster
+              position="top-right"
+              toastOptions={{
+                duration: 3000,
+                style: {
+                  background: theme === 'dark' ? '#1f2937' : '#ffffff',
+                  color: theme === 'dark' ? '#f9fafb' : '#111827',
+                  border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
                 },
-              },
-              error: {
-                iconTheme: {
-                  primary: '#ef4444',
-                  secondary: '#ffffff',
+                success: {
+                  iconTheme: {
+                    primary: '#10b981',
+                    secondary: '#ffffff',
+                  },
                 },
-              },
-            }}
-          />
-          <AppContentInner />
-        </div>
-      </SocketProvider>
+                error: {
+                  iconTheme: {
+                    primary: '#ef4444',
+                    secondary: '#ffffff',
+                  },
+                },
+              }}
+            />
+            <AppContentInner />
+          </div>
+        </SocketProvider>
+      </QueryClientProvider>
     </Router>
   );
 }

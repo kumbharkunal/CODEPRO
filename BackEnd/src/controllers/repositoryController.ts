@@ -1,8 +1,9 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
+import { SUBSCRIPTION_LIMITS, PLANS } from '../config/constants';
 import Repository from '../models/Repository';
-import { AuthRequest } from '../middlewares/auth';
+import User from '../models/User';
 
-export const createRepository = async (req: AuthRequest, res: Response) => {
+export const createRepository = async (req: any, res: Response) => {
     try {
         const {
             githubRepoId,
@@ -12,22 +13,39 @@ export const createRepository = async (req: AuthRequest, res: Response) => {
             description,
             isPrivate,
             defaultBranch,
-            connectedBy,
+            githubAccessToken,
         } = req.body;
 
-        // Only admins can connect repositories
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ 
-                message: 'Only admins can connect repositories.',
-                code: 'ACCESS_DENIED'
-            });
+        const userId = req.user._id;
+        const teamId = req.user.teamId;
+
+        if (!teamId) {
+            return res.status(403).json({ message: 'User must be part of a team to connect repositories' });
         }
 
-        const existingRepo = await Repository.findOne({ githubRepoId });
+        // Check if repo already exists for this team
+        const existingRepo = await Repository.findOne({ githubRepoId, teamId });
         if (existingRepo) {
-            return res.status(400).json({ message: 'Repository already connected' });
+            return res.status(400).json({ message: 'Repository already connected to your team' });
         }
-        
+
+        // SUBSCRIPTION CHECK START
+        // Check subscription limits
+        const user = await User.findById(userId);
+        const currentPlan = user?.subscription?.plan || PLANS.FREE;
+        const limit = SUBSCRIPTION_LIMITS[currentPlan as keyof typeof SUBSCRIPTION_LIMITS].maxRepositories;
+
+        const repoCount = await Repository.countDocuments({
+            teamId: teamId // Count per team
+        });
+
+        if (repoCount >= limit) {
+            return res.status(403).json({
+                message: `Plan limit reached. You can only connect ${limit} repositories on the ${currentPlan} plan.`
+            });
+        }
+        // SUBSCRIPTION CHECK END
+
         const newRepository = new Repository({
             githubRepoId,
             name,
@@ -36,7 +54,9 @@ export const createRepository = async (req: AuthRequest, res: Response) => {
             description,
             isPrivate,
             defaultBranch,
-            connectedBy: connectedBy || req.user._id, // Use current user if not specified
+            connectedBy: userId,
+            teamId,
+            githubAccessToken,
         });
 
         await newRepository.save();
@@ -51,20 +71,20 @@ export const createRepository = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// Get all repositories
-// - Admins: See all repositories
-// - Developers: See all repositories (they need to see reviews for all repos)
-export const getAllRepositories = async (req: AuthRequest, res: Response) => {
+
+// Get all repositories (TEAM-SCOPED - only team's repositories)
+export const getAllRepositories = async (req: any, res: Response) => {
     try {
-        const userId = req.user._id;
-        const userRole = req.user.role;
-        
-        // Admins see all repositories
-        // Developers and viewers see all repositories (for viewing reviews)
-        const repositories = await Repository.find()
+        const teamId = req.user.teamId;
+
+        // If user has no team yet, return empty array instead of error
+        if (!teamId) {
+            return res.status(200).json([]);
+        }
+
+        const repositories = await Repository.find({ teamId })
             .populate('connectedBy', 'name email')
             .sort({ createdAt: -1 });
-            
         res.status(200).json(repositories);
     } catch (error) {
         console.error('Error fetching repositories', error);
@@ -72,21 +92,18 @@ export const getAllRepositories = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// Get repositories by user
-export const getUserRepositories = async (req: AuthRequest, res: Response) => {
+// Get repositories by user (TEAM-SCOPED)
+export const getUserRepositories = async (req: any, res: Response) => {
     try {
         const { userId } = req.params;
-        
-        // Admins can view any user's repositories, others can only view their own
-        if (req.user.role !== 'admin' && userId !== req.user._id.toString()) {
-            return res.status(403).json({ 
-                message: 'Access denied. You can only view your own repositories.',
-                code: 'ACCESS_DENIED'
-            });
+        const teamId = req.user.teamId;
+
+        if (!teamId) {
+            return res.status(403).json({ message: 'User must be part of a team' });
         }
-        
-        const repositories = await Repository.find({ connectedBy: userId })
-            .populate('connectedBy', 'name email')
+
+        // Only return repos that belong to the user AND the team
+        const repositories = await Repository.find({ connectedBy: userId, teamId })
             .sort({ createdAt: -1 });
         res.status(200).json(repositories);
     } catch (error) {
@@ -95,14 +112,17 @@ export const getUserRepositories = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// Get single repository
-// - Admins: Can view any repository
-// - Developers: Can view any repository (for viewing reviews)
-export const getRepositoryById = async (req: AuthRequest, res: Response) => {
+// Get single repository (TEAM-SCOPED with ownership verification)
+export const getRepositoryById = async (req: any, res: Response) => {
     try {
         const { id } = req.params;
-        
-        const repository = await Repository.findById(id)
+        const teamId = req.user.teamId;
+
+        if (!teamId) {
+            return res.status(403).json({ message: 'User must be part of a team' });
+        }
+
+        const repository = await Repository.findOne({ _id: id, teamId })
             .populate('connectedBy', 'name email');
 
         if (!repository) {
@@ -116,16 +136,24 @@ export const getRepositoryById = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// Delete repository (Admin only - enforced by route middleware)
-export const deleteRepository = async (req: AuthRequest, res: Response) => {
+// Delete repository (ADMIN ONLY, TEAM-SCOPED)
+export const deleteRepository = async (req: any, res: Response) => {
     try {
         const { id } = req.params;
-        
-        const repository = await Repository.findByIdAndDelete(id);
+        const teamId = req.user.teamId;
+
+        if (!teamId) {
+            return res.status(403).json({ message: 'User must be part of a team' });
+        }
+
+        const repository = await Repository.findOneAndDelete({ _id: id, teamId });
 
         if (!repository) {
             return res.status(404).json({ message: 'Repository not found' });
         }
+
+        // TODO: Also delete associated reviews if needed
+        // await Review.deleteMany({ repositoryId: id });
 
         res.status(200).json({ message: 'Repository disconnected successfully' });
     } catch (error) {

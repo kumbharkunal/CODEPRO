@@ -9,6 +9,7 @@ import { useAppSelector } from '@/store/hooks';
 import { Github, Search, Check, Lock, Unlock, GitBranch, Star, Filter } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
+import { useConnectRepository } from '@/hooks/useRepositories';
 
 export default function ConnectRepositoryPage() {
   const navigate = useNavigate();
@@ -19,6 +20,8 @@ export default function ConnectRepositoryPage() {
   const [connecting, setConnecting] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'public' | 'private'>('all');
+
+  const { mutateAsync: connectRepository } = useConnectRepository();
 
   useEffect(() => {
     fetchRepositories();
@@ -37,7 +40,7 @@ export default function ConnectRepositoryPage() {
 
     // Apply visibility filter
     if (filter !== 'all') {
-      filtered = filtered.filter(repo => 
+      filtered = filtered.filter(repo =>
         filter === 'private' ? repo.isPrivate : !repo.isPrivate
       );
     }
@@ -48,7 +51,7 @@ export default function ConnectRepositoryPage() {
   const fetchRepositories = async () => {
     try {
       const token = localStorage.getItem('github_token');
-      
+
       if (!token) {
         toast.error('GitHub token not found. Please connect GitHub again.');
         navigate('/repositories');
@@ -76,14 +79,14 @@ export default function ConnectRepositoryPage() {
 
     try {
       const token = localStorage.getItem('github_token');
-      
+
       if (!token) {
         toast.error('GitHub token not found');
         return;
       }
 
-      const response = await githubService.connectRepository(
-        {
+      const response = await connectRepository({
+        repoData: {
           githubRepoId: repo.id,
           name: repo.name,
           fullName: repo.fullName,
@@ -92,18 +95,18 @@ export default function ConnectRepositoryPage() {
           isPrivate: repo.isPrivate,
           defaultBranch: repo.defaultBranch,
         },
-        token,
-        user.id
-      );
+        accessToken: token,
+        userId: user.id
+      });
 
       toast.success(`${repo.name} connected successfully!`);
-      
+
       // Show webhook warning if present
       if (response.webhookWarning) {
         // Determine if it's a critical warning or just informational
-        const isInfo = response.webhookWarning.includes('already exists') || 
-                       response.webhookWarning.includes('will continue to work');
-        
+        const isInfo = response.webhookWarning.includes('already exists') ||
+          response.webhookWarning.includes('will continue to work');
+
         if (isInfo) {
           toast.success(response.webhookWarning, {
             duration: 5000,
@@ -116,7 +119,7 @@ export default function ConnectRepositoryPage() {
           });
         }
       }
-      
+
       localStorage.removeItem('github_token');
       navigate('/repositories');
     } catch (error: any) {
@@ -270,7 +273,7 @@ export default function ConnectRepositoryPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <CardTitle className="text-xl truncate">{repo.name}</CardTitle>
-                          <Badge 
+                          <Badge
                             variant={repo.isPrivate ? 'secondary' : 'outline'}
                             className="flex items-center gap-1"
                           >

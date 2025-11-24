@@ -17,7 +17,7 @@ const FindingSchema: Schema = new Schema({
     },
     category: {
         type: String,
-        enum: ['bug', 'security', 'performance', 'style', 'best-practice','code-quality'],
+        enum: ['bug', 'security', 'performance', 'style', 'best-practice', 'code-quality', 'logic', 'maintainability'],
         required: true,
     },
     title: {
@@ -89,6 +89,11 @@ const ReviewSchema: Schema = new Schema(
             type: Schema.Types.ObjectId,
             ref: 'User',
             required: true,
+        },
+        teamId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Team',
+            required: false, // For migration; will be required for new reviews
         },
     },
     {

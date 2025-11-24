@@ -11,143 +11,108 @@ import { useAppSelector, useAppDispatch } from '@/store/hooks';
 import { setCredentials } from '@/store/slices/authSlice';
 import { stripeService } from '@/services/stripeService';
 import { useUser, useAuth } from '@clerk/clerk-react';
-import { authService } from '@/services/authService';
-import { 
-  Upload, 
-  CreditCard, 
-  User, 
-  Mail, 
-  Shield, 
+
+import { useRole } from '@/hooks/useRole';
+import { useUpdateUser, useUploadProfileImage, useSyncClerkUser } from '@/hooks/useUser';
+import {
+  Upload,
+  CreditCard,
+  User,
+  Mail,
+  Shield,
   Check,
   Crown,
   Sparkles,
   Camera,
-  RefreshCw
+  RefreshCw,
+  Lock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import api from '@/services/api';
+
 
 export default function SettingsPage() {
   const user = useAppSelector(state => state.auth.user);
   const dispatch = useAppDispatch();
   const { user: clerkUser } = useUser();
   const { getToken } = useAuth();
+  const { isAdmin, isDeveloper } = useRole();
+
+  // Form state
   const [name, setName] = useState(user?.name || '');
-  const [uploading, setUploading] = useState(false);
-  const [updating, setUpdating] = useState(false);
   const [imagePreview, setImagePreview] = useState(user?.profileImage || '');
-  const [refreshingSubscription, setRefreshingSubscription] = useState(false);
 
-  // Refresh user data when component mounts to get latest subscription info
+  // Track original values for comparison
+  const [originalName, setOriginalName] = useState(user?.name || '');
+  const [originalImage, setOriginalImage] = useState(user?.profileImage || '');
+
+  // Track pending changes
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [hasImageChanged, setHasImageChanged] = useState(false);
+
+  // Loading states
+  const [updating, setUpdating] = useState(false);
+
+  // Initialize form values when user data becomes available
   useEffect(() => {
-    const refreshUserData = async () => {
-      if (!clerkUser) return;
+    if (user) {
+      setName(user.name || '');
+      setImagePreview(user.profileImage || '');
+      setOriginalName(user.name || '');
+      setOriginalImage(user.profileImage || '');
+    }
+  }, [user?.id]); // Only re-run if user ID changes (new user logged in)
 
-      try {
-        const token = await getToken({ skipCache: true });
-        if (!token) return;
+  // REMOVED: The problematic useEffect that synced from Clerk
+  // This was overwriting MongoDB data with stale Clerk imageUrl
+  // Now we only sync FROM MongoDB TO Clerk, not the reverse
 
-        const response = await authService.syncClerkUser({
-          clerkId: clerkUser.id,
-          email: clerkUser.primaryEmailAddress?.emailAddress || '',
-          name: clerkUser.fullName || clerkUser.username || 'User',
-          profileImage: clerkUser.imageUrl,
-        }, token);
 
-        console.log('Settings: Refreshed user data:', response.user);
-        console.log('Settings: Subscription plan:', response.user.subscription?.plan);
 
-        dispatch(setCredentials({
-          user: response.user,
-          token: token,
-        }));
+  const { mutateAsync: uploadImage } = useUploadProfileImage();
+  const { mutateAsync: updateUser } = useUpdateUser();
+  const { mutate: syncUser, isPending: refreshingSubscription } = useSyncClerkUser();
 
-        // Update local state with refreshed data
-        setName(response.user.name || '');
-        setImagePreview(response.user.profileImage || '');
-      } catch (error) {
-        console.error('Error refreshing user data:', error);
-      }
-    };
-
-    refreshUserData();
-  }, [clerkUser, getToken, dispatch]);
+  // ... (keep useEffects)
 
   // Manual refresh function for subscription data
   const handleRefreshSubscription = async () => {
     if (!clerkUser) return;
 
-    setRefreshingSubscription(true);
     try {
       const token = await getToken({ skipCache: true });
       if (!token) return;
 
-      const response = await authService.syncClerkUser({
-        clerkId: clerkUser.id,
-        email: clerkUser.primaryEmailAddress?.emailAddress || '',
-        name: clerkUser.fullName || clerkUser.username || 'User',
-        profileImage: clerkUser.imageUrl,
-      }, token);
-
-      console.log('Settings: Refreshed subscription data:', response.user.subscription);
-
-      dispatch(setCredentials({
-        user: response.user,
-        token: token,
-      }));
-
-      toast.success('Subscription status updated!');
+      syncUser({ clerkUser, token });
     } catch (error) {
-      console.error('Error refreshing subscription:', error);
-      toast.error('Failed to refresh subscription status');
-    } finally {
-      setRefreshingSubscription(false);
+      console.error('Error getting token:', error);
     }
   };
 
-  // Image upload with react-dropzone
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+  // Stage image when dropped - upload happens on Save
+  const onDrop = useCallback((acceptedFiles: File[]) => {
     if (!acceptedFiles.length) return;
 
     const file = acceptedFiles[0];
-    
+
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be less than 5MB');
+      return;
+    }
+
+    // Stage the file for upload
+    setPendingImageFile(file);
+    setHasImageChanged(true);
+
     // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
       setImagePreview(reader.result as string);
     };
     reader.readAsDataURL(file);
-    
-    setUploading(true);
 
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
-      formData.append('userId', user!.id);
-
-      const response = await api.post('/upload/profile-image', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      // Update Redux state
-      dispatch(setCredentials({
-        user: {
-          ...user!,
-          profileImage: response.data.imageUrl,
-        },
-        token: localStorage.getItem('token') || '',
-      }));
-
-      toast.success('Profile image updated successfully!');
-    } catch (error) {
-      toast.error('Failed to upload image');
-      setImagePreview(user?.profileImage || '');
-    } finally {
-      setUploading(false);
-    }
-  }, [user, dispatch]);
+    toast.success('Image ready to save. Click "Save Changes" to update.');
+  }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -165,18 +130,67 @@ export default function SettingsPage() {
     }
 
     setUpdating(true);
+    let updatedImageUrl: string = user!.profileImage || '';
 
     try {
-      await api.put(`/users/${user!.id}`, { name });
+      // Step 1: Upload image if changed
+      if (hasImageChanged && pendingImageFile) {
+        console.log('Uploading new profile image...');
+        try {
+          const imageResponse = await uploadImage({ userId: user!.id, file: pendingImageFile });
+          updatedImageUrl = imageResponse.imageUrl;
+          console.log('Image uploaded:', updatedImageUrl);
+        } catch (imageError: any) {
+          console.error('Image upload failed:', imageError);
+          throw new Error('Failed to upload profile image');
+        }
+      }
+
+      // Step 2: Update name if changed
+      const hasNameChanged = name.trim() !== originalName;
+      if (hasNameChanged) {
+        console.log('Updating profile name...');
+        try {
+          await updateUser({ userId: user!.id, data: { name: name.trim() } });
+          console.log('Name updated');
+        } catch (nameError: any) {
+          console.error('Name update failed:', nameError);
+          throw new Error('Failed to update name');
+        }
+      }
+
+      // Step 3: Update Redux state with all changes
+      const updatedUser = {
+        ...user!,
+        name: name.trim(),
+        profileImage: updatedImageUrl,
+      };
 
       dispatch(setCredentials({
-        user: { ...user!, name },
+        user: updatedUser,
         token: localStorage.getItem('token') || '',
       }));
 
+      // Step 4: Update original values and reset form state
+      setOriginalName(name.trim());
+      setOriginalImage(updatedImageUrl);
+      setPendingImageFile(null);
+      setHasImageChanged(false);
+
       toast.success('Profile updated successfully!');
-    } catch (error) {
-      toast.error('Failed to update profile');
+
+    } catch (error: any) {
+      console.error('Profile update error:', error);
+
+      // Show specific error message
+      const errorMessage = error.message || error.response?.data?.message || 'Failed to update profile';
+      toast.error(errorMessage);
+
+      // Revert preview to original on error
+      setImagePreview(originalImage);
+      setName(originalName);
+      setPendingImageFile(null);
+      setHasImageChanged(false);
     } finally {
       setUpdating(false);
     }
@@ -204,14 +218,14 @@ export default function SettingsPage() {
 
   // Get current plan - default to 'free' if not set
   const currentPlan = user.subscription?.plan || 'free';
-  
-  const planColor = currentPlan === 'pro' ? 'text-yellow-500' : 
-                    currentPlan === 'enterprise' ? 'text-purple-500' : 
-                    'text-muted-foreground';
 
-  const planIcon = currentPlan === 'pro' || currentPlan === 'enterprise' ? 
-                   <Crown className="w-4 h-4" /> : null;
-  
+  const planColor = currentPlan === 'pro' ? 'text-yellow-500' :
+    currentPlan === 'enterprise' ? 'text-purple-500' :
+      'text-muted-foreground';
+
+  const planIcon = currentPlan === 'pro' || currentPlan === 'enterprise' ?
+    <Crown className="w-4 h-4" /> : null;
+
   // Check if user has Pro or Enterprise subscription
   const hasProOrEnterprise = currentPlan === 'pro' || currentPlan === 'enterprise';
 
@@ -241,34 +255,38 @@ export default function SettingsPage() {
         <Tabs defaultValue="profile" className="space-y-6">
           <div className="flex justify-center">
             <TabsList className="grid w-full grid-cols-2 lg:w-auto lg:inline-grid h-auto p-1">
-            <TabsTrigger 
-              value="profile" 
-              className="flex items-center gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground py-2.5"
-            >
-              <User className="w-4 h-4" />
-              <span className="hidden sm:inline">Profile</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="subscription" 
-              className="flex items-center gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground py-2.5"
-            >
-              <CreditCard className="w-4 h-4" />
-              <span className="hidden sm:inline">Subscription</span>
-            </TabsTrigger>
-          </TabsList>
+              <TabsTrigger
+                value="profile"
+                className="flex items-center gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground py-2.5"
+              >
+                <User className="w-4 h-4" />
+                <span className="hidden sm:inline">Profile</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="subscription"
+                className="flex items-center gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground py-2.5"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span className="hidden sm:inline">Subscription</span>
+              </TabsTrigger>
+            </TabsList>
           </div>
 
           {/* Profile Tab */}
           <TabsContent value="profile" className="space-y-6">
             <Card className="border-2 shadow-lg hover:shadow-xl transition-all duration-300">
               <CardHeader className="space-y-1 pb-4">
-                <CardTitle className="text-2xl flex items-center gap-2">
-                  <User className="w-5 h-5 text-primary" />
-                  Profile Information
-                </CardTitle>
-                <CardDescription>
-                  Update your personal details and profile picture
-                </CardDescription>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <CardTitle className="text-2xl flex items-center gap-2">
+                      <User className="w-5 h-5 text-primary" />
+                      Profile Information
+                    </CardTitle>
+                    <CardDescription>
+                      Update your personal details and profile picture
+                    </CardDescription>
+                  </div>
+                </div>
               </CardHeader>
               <Separator />
               <CardContent className="pt-6 space-y-8">
@@ -278,7 +296,7 @@ export default function SettingsPage() {
                     <Camera className="w-4 h-4 text-primary" />
                     Profile Photo
                   </Label>
-                  
+
                   <div className="flex flex-col sm:flex-row items-center gap-6">
                     {/* Avatar Display */}
                     <div className="relative group">
@@ -288,9 +306,9 @@ export default function SettingsPage() {
                           {name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                      {uploading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-background/80 rounded-full">
-                          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                      {hasImageChanged && (
+                        <div className="absolute -top-1 -right-1 bg-green-500 text-white rounded-full p-1.5 shadow-lg">
+                          <Check className="w-3 h-3" />
                         </div>
                       )}
                     </div>
@@ -299,13 +317,14 @@ export default function SettingsPage() {
                     <div
                       {...getRootProps()}
                       className={`
-                        flex-1 w-full sm:min-w-0 border-2 border-dashed rounded-xl p-6 sm:p-8 cursor-pointer
-                        transition-all duration-300 hover:scale-[1.02]
-                        ${isDragActive 
-                          ? 'border-primary bg-primary/10 shadow-lg' 
+                        flex-1                        border-2 border-dashed rounded-xl p-6 sm:p-8
+                        transition-all duration-300
+                        cursor-pointer hover:scale-[1.02]
+                        ${isDragActive
+                          ? 'border-primary bg-primary/10 shadow-lg'
                           : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-accent/50'
                         }
-                        ${uploading ? 'opacity-50 pointer-events-none' : ''}
+                        ${updating ? 'opacity-50 pointer-events-none' : ''}
                       `}
                     >
                       <input {...getInputProps()} />
@@ -318,13 +337,10 @@ export default function SettingsPage() {
                             <Upload className="w-6 h-6" />
                           </div>
                         </div>
-                        
-                        {uploading ? (
+
+                        {updating ? (
                           <div className="space-y-2">
-                            <p className="text-sm font-medium">Uploading...</p>
-                            <div className="h-1 bg-muted rounded-full overflow-hidden">
-                              <div className="h-full bg-primary animate-pulse" style={{ width: '60%' }}></div>
-                            </div>
+                            <p className="text-sm font-medium">Preparing...</p>
                           </div>
                         ) : isDragActive ? (
                           <div className="space-y-1">
@@ -370,10 +386,10 @@ export default function SettingsPage() {
                     Email Address
                   </Label>
                   <div className="relative">
-                    <Input 
-                      id="email" 
-                      value={user.email} 
-                      disabled 
+                    <Input
+                      id="email"
+                      value={user.email}
+                      disabled
                       className="h-12 text-base bg-muted/50 border-2"
                     />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -390,9 +406,9 @@ export default function SettingsPage() {
 
                 {/* Action Button */}
                 <div className="flex justify-end">
-                  <Button 
-                    onClick={handleUpdateProfile} 
-                    disabled={updating || !name.trim() || name === user.name}
+                  <Button
+                    onClick={handleUpdateProfile}
+                    disabled={updating || !name.trim() || (name.trim() === originalName && !hasImageChanged)}
                     size="lg"
                     className="min-w-[140px] h-12 text-base font-semibold shadow-lg hover:shadow-xl transition-all duration-300"
                   >
@@ -441,7 +457,7 @@ export default function SettingsPage() {
                   </div>
                 </CardHeader>
               </div>
-              
+
               <CardContent className="p-6 sm:p-8 space-y-6">
                 {/* Current Plan Card */}
                 <div className="relative overflow-hidden rounded-xl border-2 border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 p-6 sm:p-8 shadow-md hover:shadow-lg transition-all duration-300">
@@ -450,17 +466,16 @@ export default function SettingsPage() {
                       <Sparkles className="w-6 h-6 text-yellow-500 animate-pulse" />
                     </div>
                   )}
-                  
+
                   <div className="space-y-6">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                       <div className="space-y-3">
                         <div className="flex items-center gap-3">
                           {planIcon && (
-                            <div className={`p-2 rounded-lg ${
-                              currentPlan === 'enterprise' ? 'bg-purple-500/10' :
+                            <div className={`p-2 rounded-lg ${currentPlan === 'enterprise' ? 'bg-purple-500/10' :
                               currentPlan === 'pro' ? 'bg-yellow-500/10' :
-                              'bg-muted'
-                            }`}>
+                                'bg-muted'
+                              }`}>
                               <span className={planColor}>{planIcon}</span>
                             </div>
                           )}
@@ -477,20 +492,28 @@ export default function SettingsPage() {
                         </div>
                       </div>
 
-                      <Button 
-                        onClick={handleManageSubscription} 
-                        variant="default"
-                        size="lg"
-                        className="w-full sm:w-auto h-12 font-semibold shadow-md hover:shadow-lg transition-all duration-300"
-                      >
-                        <CreditCard className="w-4 h-4 mr-2" />
-                        Manage Billing
-                      </Button>
+                      {isAdmin && (
+                        <Button
+                          onClick={handleManageSubscription}
+                          variant="default"
+                          size="lg"
+                          className="w-full sm:w-auto h-12 font-semibold shadow-md hover:shadow-lg transition-all duration-300"
+                        >
+                          <CreditCard className="w-4 h-4 mr-2" />
+                          Manage Billing
+                        </Button>
+                      )}
+                      {isDeveloper && (
+                        <div className="flex items-center gap-2 px-4 py-2 bg-amber-100 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded-lg border border-amber-200 dark:border-amber-800">
+                          <Lock className="w-4 h-4" />
+                          <span className="text-sm font-medium">Contact admin for billing</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Plan Features */}
                     <Separator />
-                    
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50">
                         <div className="p-1.5 rounded-full bg-primary/10 mt-0.5">
@@ -499,11 +522,12 @@ export default function SettingsPage() {
                         <div>
                           <p className="font-medium text-sm">AI Code Reviews</p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {currentPlan === 'free' ? 'Limited' : 'Unlimited'}
+                            {currentPlan === 'free' ? '60 reviews/month' :
+                              currentPlan === 'pro' ? '300 reviews/month' : 'Unlimited'}
                           </p>
                         </div>
                       </div>
-                      
+
                       <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50">
                         <div className="p-1.5 rounded-full bg-primary/10 mt-0.5">
                           <Check className="w-4 h-4 text-primary" />
@@ -511,8 +535,8 @@ export default function SettingsPage() {
                         <div>
                           <p className="font-medium text-sm">Repository Access</p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {currentPlan === 'free' ? '3 repositories' : 
-                             currentPlan === 'pro' ? 'Unlimited repositories' : 'Unlimited'}
+                            {currentPlan === 'free' ? '1 repository' :
+                              currentPlan === 'pro' ? 'Up to 5 repositories' : 'Unlimited repositories'}
                           </p>
                         </div>
                       </div>
@@ -533,8 +557,8 @@ export default function SettingsPage() {
                           Unlock unlimited reviews, priority support, and advanced features
                         </p>
                       </div>
-                      <Button 
-                        size="lg" 
+                      <Button
+                        size="lg"
                         className="font-semibold shadow-lg hover:shadow-xl transition-all"
                         onClick={() => window.location.href = '/pricing'}
                       >

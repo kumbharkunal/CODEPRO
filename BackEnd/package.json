@@ -31,6 +31,7 @@
     "multer": "^2.0.2",
     "socket.io": "^4.8.1",
     "stripe": "^19.2.0",
+    "svix": "^1.81.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {

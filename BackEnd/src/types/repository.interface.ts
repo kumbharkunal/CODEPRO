@@ -11,6 +11,7 @@ export interface IRepository extends Document {
     webhookId?: number;
     webhookActive: boolean;
     connectedBy: string;
+    teamId?: string; // Team that owns this repository
     githubAccessToken?: string;
     createdAt: Date;
     updatedAt: Date;

@@ -97,7 +97,7 @@ export const getUserGitHubRepos = async (req: Request, res: Response) => {
 };
 
 // Connect repository (save to database and create webhook)
-export const connectRepository = async (req: Request, res: Response) => {
+export const connectRepository = async (req: any, res: Response) => {
   try {
     const {
       githubRepoId,
@@ -111,10 +111,17 @@ export const connectRepository = async (req: Request, res: Response) => {
       userId
     } = req.body;
 
-    // Check if already connected
-    const existingRepo = await Repository.findOne({ githubRepoId });
+    // Get teamId from authenticated user
+    const teamId = req.user?.teamId;
+    
+    if (!teamId) {
+      return res.status(403).json({ message: 'User must be part of a team to connect repositories' });
+    }
+
+    // Check if already connected to this team
+    const existingRepo = await Repository.findOne({ githubRepoId, teamId });
     if (existingRepo) {
-      return res.status(400).json({ message: 'Repository already connected' });
+      return res.status(400).json({ message: 'Repository already connected to your team' });
     }
 
     // Create webhook on GitHub
@@ -217,6 +224,7 @@ export const connectRepository = async (req: Request, res: Response) => {
       webhookId,
       webhookActive,
       connectedBy: userId,
+      teamId, // Add teamId for team-scoped access
       githubAccessToken: accessToken, // Store encrypted in production!
     });
 

@@ -1,7 +1,7 @@
 import { Document } from "mongoose";
 
 export interface IReview extends Document {
-    respositoryId: string;
+    repositoryId: string;
     pullRequestNumber: number;
     pullRequestTitle: string;
     pullRequestUrl: string;
@@ -13,6 +13,7 @@ export interface IReview extends Document {
     summary: string;
     qualityScore?: number;
     reviewedBy: string;
+    teamId?: string; // Team that owns this review
     createdAt: Date;
     updatedAt: Date;
 }
@@ -21,7 +22,7 @@ export interface IFinding {
     file: string;
     line: number;
     severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
-    category: 'bug' | 'security' | 'performance' | 'style' | 'best-practice';
+    category: 'bug' | 'security' | 'performance' | 'style' | 'best-practice' | 'logic' | 'maintainability' | 'code-quality';
     title: string;
     description: string;
     suggestion?: string;

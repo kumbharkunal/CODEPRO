@@ -47,6 +47,11 @@ const RepositorySchema: Schema = new Schema(
             ref: 'User',
             required: true,
         },
+        teamId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Team',
+            required: false, // For migration; will be required for new repos
+        },
         githubAccessToken: {
             type: String,
             required: true,

@@ -8,6 +8,7 @@ import { useAppSelector } from '@/store/hooks';
 import { stripeService } from '@/services/stripeService';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
+import { SUBSCRIPTION_LIMITS, PLANS } from '@/config/constants';
 
 const plans = [
   {
@@ -19,11 +20,11 @@ const plans = [
     icon: <Sparkles className="w-5 h-5" />,
     gradient: 'from-gray-500 to-gray-600',
     features: [
-      '5 reviews per month',
-      'Basic AI analysis',
-      '1 repository',
+      `${SUBSCRIPTION_LIMITS[PLANS.FREE].maxReviewsPerMonth} AI reviews per month`,
+      'AI-powered code analysis',
+      `${SUBSCRIPTION_LIMITS[PLANS.FREE].maxRepositories} connected repository`,
       'Community support',
-      'Public repositories only',
+      'Email support',
     ],
     cta: 'Get Started',
     popular: false,
@@ -37,16 +38,15 @@ const plans = [
     icon: <Zap className="w-5 h-5" />,
     gradient: 'from-primary to-blue-600',
     features: [
-      'Unlimited reviews',
+      `${SUBSCRIPTION_LIMITS[PLANS.PRO].maxReviewsPerMonth} AI reviews per month`,
       'Advanced AI analysis',
-      'Unlimited repositories',
+      `Up to ${SUBSCRIPTION_LIMITS[PLANS.PRO].maxRepositories} connected repositories`,
       'Priority support',
       'Private repositories',
-      'Custom review rules',
       'Team collaboration',
       'Detailed analytics',
     ],
-    cta: 'Start Pro Trial',
+    cta: 'Upgrade to Pro',
     popular: true,
   },
   {
@@ -58,7 +58,9 @@ const plans = [
     icon: <Crown className="w-5 h-5" />,
     gradient: 'from-purple-600 to-pink-600',
     features: [
+      'Unlimited AI reviews',
       'Everything in Pro',
+      'Unlimited repositories',
       'Dedicated support',
       'Custom integrations',
       'SLA guarantee',
@@ -68,7 +70,7 @@ const plans = [
       'On-premise option',
       'SSO/SAML',
     ],
-    cta: 'Contact Sales',
+    cta: 'Upgrade to Enterprise',
     popular: false,
   },
 ];
@@ -106,6 +108,34 @@ export default function PricingPage() {
   const [loading, setLoading] = useState<string | null>(null);
   const [expandedFAQ, setExpandedFAQ] = useState<number | null>(null);
 
+  // Get user's current plan
+  const currentPlan = user?.subscription?.plan || 'free';
+
+  // Helper to determine button state
+  const getButtonState = (planName: string) => {
+    const planLower = planName.toLowerCase();
+    const isCurrentPlan = currentPlan === planLower;
+    const planHierarchy = { free: 0, pro: 1, enterprise: 2 };
+    const currentTier = planHierarchy[currentPlan as keyof typeof planHierarchy] || 0;
+    const planTier = planHierarchy[planLower as keyof typeof planHierarchy] || 0;
+    const isLowerTier = planTier < currentTier;
+
+    return {
+      isCurrentPlan,
+      isLowerTier,
+      isDisabled: isCurrentPlan || isLowerTier,
+      buttonText: isCurrentPlan
+        ? 'Your current Plan'
+        : isLowerTier
+          ? 'Not Available'
+          : planName === 'Free'
+            ? 'Get Started'
+            : planName === 'Pro'
+              ? 'Upgrade to Pro'
+              : 'Upgrade to Enterprise'
+    };
+  };
+
   const handleSubscribe = async (plan: typeof plans[0]) => {
     if (!user) {
       toast.error('Please login first');
@@ -119,7 +149,21 @@ export default function PricingPage() {
     }
 
     if (plan.name === 'Enterprise') {
-      window.location.href = 'mailto:sales@codepro.dev?subject=Enterprise Inquiry';
+      // Enterprise now triggers Stripe checkout
+      setLoading(plan.name);
+      try {
+        const { url } = await stripeService.createCheckoutSession(
+          user.id,
+          plan.priceId,
+          plan.name.toLowerCase()
+        );
+        window.location.href = url;
+      } catch (error) {
+        toast.error('Failed to start checkout');
+        console.error(error);
+      } finally {
+        setLoading(null);
+      }
       return;
     }
 
@@ -176,88 +220,92 @@ export default function PricingPage() {
 
         {/* Plans */}
         <div className="grid md:grid-cols-3 gap-8 max-w-7xl mx-auto mb-20">
-          {plans.map((plan, index) => (
-            <motion.div
-              key={plan.name}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: index * 0.1 }}
-            >
-              <Card
-                className={`relative h-full transition-all duration-300 hover:shadow-2xl ${
-                  plan.popular 
-                    ? 'border-primary shadow-xl scale-105 lg:scale-110' 
-                    : 'hover:border-primary/50'
-                }`}
+          {plans.map((plan, index) => {
+            const buttonState = getButtonState(plan.name);
+            return (
+              <motion.div
+                key={plan.name}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: index * 0.1 }}
               >
-                {plan.popular && (
-                  <div className="absolute -top-5 left-1/2 transform -translate-x-1/2 z-10">
-                    <Badge className="px-4 py-1.5 bg-gradient-to-r from-primary to-blue-600 border-0 shadow-lg">
-                      <Sparkles className="w-3 h-3 mr-1" />
-                      Most Popular
-                    </Badge>
-                  </div>
-                )}
-
-                <CardHeader className="space-y-4 pb-8">
-                  <div className={`inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-r ${plan.gradient} text-white`}>
-                    {plan.icon}
-                  </div>
-                  <div>
-                    <CardTitle className="text-2xl mb-2">{plan.name}</CardTitle>
-                    <CardDescription className="text-base">{plan.description}</CardDescription>
-                  </div>
-                  <div className="pt-4">
-                    <div className="flex items-baseline">
-                      <span className="text-5xl font-bold">{plan.price}</span>
-                      <span className="text-muted-foreground ml-2">{plan.period}</span>
+                <Card
+                  className={`relative h-full transition-all duration-300 hover:shadow-2xl ${plan.popular
+                    ? 'border-primary shadow-xl scale-105 lg:scale-110'
+                    : 'hover:border-primary/50'
+                    }`}
+                >
+                  {plan.popular && (
+                    <div className="absolute -top-5 left-1/2 transform -translate-x-1/2 z-10">
+                      <Badge className="px-4 py-1.5 bg-gradient-to-r from-primary to-blue-600 border-0 shadow-lg">
+                        <Sparkles className="w-3 h-3 mr-1" />
+                        Most Popular
+                      </Badge>
                     </div>
-                  </div>
-                </CardHeader>
+                  )}
 
-                <CardContent className="space-y-6 pb-8">
-                  <ul className="space-y-3">
-                    {plan.features.map((feature, i) => (
-                      <motion.li
-                        key={i}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.1 * i }}
-                        className="flex items-start gap-3"
-                      >
-                        <div className={`flex-shrink-0 w-5 h-5 rounded-full bg-gradient-to-r ${plan.gradient} flex items-center justify-center mt-0.5`}>
-                          <Check className="w-3 h-3 text-white" />
-                        </div>
-                        <span className="text-sm leading-relaxed">{feature}</span>
-                      </motion.li>
-                    ))}
-                  </ul>
-                </CardContent>
+                  <CardHeader className="space-y-4 pb-8">
+                    <div className={`inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-r ${plan.gradient} text-white`}>
+                      {plan.icon}
+                    </div>
+                    <div>
+                      <CardTitle className="text-2xl mb-2">{plan.name}</CardTitle>
+                      <CardDescription className="text-base">{plan.description}</CardDescription>
+                    </div>
+                    <div className="pt-4">
+                      <div className="flex items-baseline">
+                        <span className="text-5xl font-bold">{plan.price}</span>
+                        <span className="text-muted-foreground ml-2">{plan.period}</span>
+                      </div>
+                    </div>
+                  </CardHeader>
 
-                <CardFooter>
-                  <Button
-                    className={`w-full py-6 text-base font-semibold rounded-xl transition-all duration-300 ${
-                      plan.popular
+                  <CardContent className="space-y-6 pb-8">
+                    <ul className="space-y-3">
+                      {plan.features.map((feature, i) => (
+                        <motion.li
+                          key={i}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: 0.1 * i }}
+                          className="flex items-start gap-3"
+                        >
+                          <div className={`flex-shrink-0 w-5 h-5 rounded-full bg-gradient-to-r ${plan.gradient} flex items-center justify-center mt-0.5`}>
+                            <Check className="w-3 h-3 text-white" />
+                          </div>
+                          <span className="text-sm leading-relaxed">{feature}</span>
+                        </motion.li>
+                      ))}
+                    </ul>
+                  </CardContent>
+
+                  <CardFooter>
+                    <Button
+                      className={`w-full py-6 text-base font-semibold rounded-xl transition-all duration-300 ${plan.popular && !buttonState.isDisabled
                         ? `bg-gradient-to-r ${plan.gradient} hover:opacity-90 shadow-lg hover:shadow-xl text-white`
                         : ''
-                    }`}
-                    variant={plan.popular ? 'default' : 'outline'}
-                    onClick={() => handleSubscribe(plan)}
-                    disabled={loading === plan.name}
-                  >
-                    {loading === plan.name ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                        Processing...
-                      </>
-                    ) : (
-                      plan.cta
-                    )}
-                  </Button>
-                </CardFooter>
-              </Card>
-            </motion.div>
-          ))}
+                        }`}
+                      variant={plan.popular && !buttonState.isDisabled ? 'default' : 'outline'}
+                      onClick={() => handleSubscribe(plan)}
+                      disabled={loading === plan.name || buttonState.isDisabled}
+                    >
+                      {loading === plan.name ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          {buttonState.isCurrentPlan && <Sparkles className="w-4 h-4 mr-2" />}
+                          {buttonState.buttonText}
+                        </>
+                      )}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              </motion.div>
+            );
+          })}
         </div>
 
         {/* FAQ Section */}
@@ -285,17 +333,16 @@ export default function PricingPage() {
                 viewport={{ once: true }}
                 transition={{ delay: index * 0.1 }}
               >
-                <Card 
+                <Card
                   className="cursor-pointer hover:shadow-lg transition-all duration-300 hover:border-primary/50"
                   onClick={() => setExpandedFAQ(expandedFAQ === index ? null : index)}
                 >
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <h3 className="font-semibold text-lg">{faq.question}</h3>
-                      <ChevronDown 
-                        className={`w-5 h-5 text-muted-foreground transition-transform duration-300 ${
-                          expandedFAQ === index ? 'rotate-180' : ''
-                        }`}
+                      <ChevronDown
+                        className={`w-5 h-5 text-muted-foreground transition-transform duration-300 ${expandedFAQ === index ? 'rotate-180' : ''
+                          }`}
                       />
                     </div>
                   </CardHeader>
@@ -326,8 +373,8 @@ export default function PricingPage() {
               <p className="text-muted-foreground mb-6 text-lg">
                 Our team is here to help. Get in touch with us.
               </p>
-              <Button 
-                size="lg" 
+              <Button
+                size="lg"
                 className="rounded-full px-8"
                 onClick={() => window.location.href = 'mailto:support@codepro.dev'}
               >

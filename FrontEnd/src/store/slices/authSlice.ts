@@ -2,9 +2,11 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 interface User {
   id: string;
+  clerkId: string;
   email: string;
   name: string;
   role: 'admin' | 'developer' | 'viewer';
+  teamId?: string;
   profileImage?: string;
   subscription?: {
     plan: 'free' | 'pro' | 'enterprise';

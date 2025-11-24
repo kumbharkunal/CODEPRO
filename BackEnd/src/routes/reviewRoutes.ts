@@ -10,35 +10,38 @@ import {
   deleteReview,
 } from '../controllers/reviewController';
 import { createReviewLimiter } from '../config/rateLimiter';
-import { authenticateClerk, authorize } from '../middlewares/auth';
+import { authenticateClerk, authorize, requireTeamAccess, requireTeamOwnership } from '../middlewares/auth';
 import Repository from '../models/Repository';
 import { getIO } from '../config/socket';
 
+import { validate } from '../middlewares/validate';
+import { createReviewSchema } from '../utils/validators';
+
 const router = express.Router();
 
-// POST /api/reviews - Create new review
-router.post('/', authenticateClerk, createReviewLimiter, createReview);
+// POST /api/reviews - Create new review (ADMIN ONLY, TEAM-SCOPED)
+router.post('/', authenticateClerk, authorize(['admin']), requireTeamAccess, validate(createReviewSchema), createReviewLimiter, createReview);
 
-// GET /api/reviews - Get all reviews (PROTECTED - only user's own reviews)
-router.get('/', authenticateClerk, getAllReviews);
+// GET /api/reviews - Get all reviews (TEAM-SCOPED)
+router.get('/', authenticateClerk, requireTeamAccess, getAllReviews);
 
-// GET /api/reviews/stats - Get review statistics (PROTECTED - only user's stats)
-router.get('/stats', authenticateClerk, getReviewStats);
+// GET /api/reviews/stats - Get review statistics (TEAM-SCOPED)
+router.get('/stats', authenticateClerk, requireTeamAccess, getReviewStats);
 
-// GET /api/reviews/repository/:repositoryId - Get repository reviews (PROTECTED)
-router.get('/repository/:repositoryId', authenticateClerk, getRepositoryReviews);
+// GET /api/reviews/repository/:repositoryId - Get repository reviews (TEAM-SCOPED)
+router.get('/repository/:repositoryId', authenticateClerk, requireTeamAccess, getRepositoryReviews);
 
-// GET /api/reviews/user/:userId - Get user reviews (PROTECTED)
-router.get('/user/:userId', authenticateClerk, getUserReviews);
+// GET /api/reviews/user/:userId - Get user reviews (TEAM-SCOPED)
+router.get('/user/:userId', authenticateClerk, requireTeamAccess, getUserReviews);
 
-// GET /api/reviews/:id - Get single review (PROTECTED)
-router.get('/:id', authenticateClerk, getReviewById);
+// GET /api/reviews/:id - Get single review (TEAM-SCOPED)
+router.get('/:id', authenticateClerk, requireTeamAccess, getReviewById);
 
-// PUT /api/reviews/:id - Update review (Authenticated - AI updates or admin)
-router.put('/:id', authenticateClerk, updateReview);
+// PUT /api/reviews/:id - Update review (ADMIN ONLY, TEAM-SCOPED) - CRITICAL SECURITY FIX
+router.put('/:id', authenticateClerk, authorize(['admin']), requireTeamAccess, updateReview);
 
-// DELETE /api/reviews/:id - Delete review (Admin only)
-router.delete('/:id', authenticateClerk, authorize('admin'), deleteReview);
+// DELETE /api/reviews/:id - Delete review (ADMIN ONLY, TEAM-SCOPED)
+router.delete('/:id', authenticateClerk, authorize(['admin']), requireTeamOwnership('review'), deleteReview);
 
 // POST /api/reviews/test-ai - Test AI review (development only)
 // if (process.env.NODE_ENV === 'development') {

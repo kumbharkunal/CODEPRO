@@ -1,41 +1,80 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { reviewService } from '@/services/reviewService';
 import { useSocketContext } from '../contexts/SocketContext';
-import { ReviewStats } from '@/types';
+import { ReviewStats, Review } from '@/types';
 import { AlertCircle, CheckCircle, Clock, TrendingUp, Activity, GitPullRequest, FileCode, Zap } from 'lucide-react';
+import ReviewCard from '@/components/ReviewCard';
+import { UniversalLoader } from '@/components/ui/UniversalLoader';
 
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<ReviewStats | null>(null);
+  const [recentReviews, setRecentReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { isConnected } = useSocketContext();
 
-  useEffect(() => {
+  // Add refs to prevent excessive API calls
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
+  const isFetchingRef = useRef<boolean>(false);
+
+  // Debounced fetch function to prevent rapid successive calls
+  const debouncedFetchStats = useCallback(() => {
+    const now = Date.now();
+    const timeSinceLastFetch = now - lastFetchTimeRef.current;
+    const DEBOUNCE_DELAY = 2000; // 2 seconds minimum between fetches
+
+    // Clear any existing timeout
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+    }
+
+    // If we fetched recently or currently fetching, schedule for later
+    if (timeSinceLastFetch < DEBOUNCE_DELAY || isFetchingRef.current) {
+      fetchTimeoutRef.current = setTimeout(() => {
+        debouncedFetchStats();
+      }, DEBOUNCE_DELAY - timeSinceLastFetch);
+      return;
+    }
+
+    // Perform the actual fetch
     fetchStats();
   }, []);
 
-  // 🔥 FIX 4: Listen to custom events dispatched by useSocket
+  useEffect(() => {
+    debouncedFetchStats();
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+    };
+  }, [debouncedFetchStats]);
+
+  // Listen to custom events dispatched by useSocket
   useEffect(() => {
     const handleSocketConnected = () => {
       console.log('Dashboard: Socket connected - refreshing stats to catch any missed notifications');
-      fetchStats();
+      debouncedFetchStats();
     };
 
     const handleReviewCreated = () => {
       console.log('Dashboard: Refetching stats after review-created');
-      fetchStats();
+      debouncedFetchStats();
     };
 
     const handleReviewUpdated = () => {
       console.log('Dashboard: Refetching stats after review-updated');
-      fetchStats();
+      debouncedFetchStats();
     };
 
     const handleReviewCompleted = () => {
       console.log('Dashboard: Refetching stats after review-completed');
-      fetchStats();
+      debouncedFetchStats();
     };
 
     window.addEventListener('socket-connected', handleSocketConnected);
@@ -49,28 +88,65 @@ export default function DashboardPage() {
       window.removeEventListener('review-updated', handleReviewUpdated);
       window.removeEventListener('review-completed', handleReviewCompleted);
     };
-  }, []);
+  }, [debouncedFetchStats]);
 
   const fetchStats = async () => {
+    // Prevent concurrent fetches
+    if (isFetchingRef.current) {
+      console.log('Fetch already in progress, skipping...');
+      return;
+    }
+
     try {
-      const data = await reviewService.getReviewStats();
-      setStats(data);
-    } catch (error) {
+      isFetchingRef.current = true;
+      lastFetchTimeRef.current = Date.now();
+      setError(null);
+      const [statsData, reviewsData] = await Promise.all([
+        reviewService.getReviewStats(),
+        reviewService.getAllReviews()
+      ]);
+      setStats(statsData);
+      // Get 5 most recent reviews
+      setRecentReviews(reviewsData.slice(0, 5));
+    } catch (error: any) {
       console.error('Error fetching stats:', error);
+      const errorMessage = error.response?.status === 403
+        ? 'You need to be part of a team to view stats'
+        : error.response?.status === 401
+          ? 'Please log in again to view stats'
+          : 'Failed to load dashboard statistics';
+      setError(errorMessage);
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
   };
 
   if (loading) {
+    return <UniversalLoader />;
+  }
+
+  if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
-        <div className="text-center space-y-4">
-          <div className="relative w-16 h-16 mx-auto">
-            <div className="absolute inset-0 border-4 border-primary/20 rounded-full"></div>
-            <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+        <div className="text-center space-y-4 max-w-md">
+          <div className="w-16 h-16 mx-auto bg-rose-500/10 rounded-full flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-rose-600 dark:text-rose-400" />
           </div>
-          <p className="text-lg font-medium animate-pulse">Loading your dashboard...</p>
+          <div className="space-y-2">
+            <p className="text-xl font-semibold">Unable to Load Dashboard</p>
+            <p className="text-muted-foreground">{error}</p>
+          </div>
+          <button
+            onClick={() => {
+              setLoading(true);
+              setError(null);
+              fetchStats();
+            }}
+            className="px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity"
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );
@@ -87,7 +163,7 @@ export default function DashboardPage() {
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary/90 to-primary/80 p-6 sm:p-8 lg:p-10 text-primary-foreground shadow-2xl">
           <div className="absolute inset-0 bg-grid-white/10 [mask-image:linear-gradient(0deg,transparent,black)]"></div>
           <div className="absolute inset-0 bg-gradient-to-br from-transparent via-white/5 to-transparent"></div>
-          
+
           <div className="relative flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div className="space-y-2">
               <div className="flex items-center gap-3">
@@ -99,8 +175,8 @@ export default function DashboardPage() {
               <p className="text-primary-foreground/80 text-sm sm:text-base">Real-time insights into your code quality</p>
             </div>
             <div className="flex items-center gap-3">
-              <Badge 
-                variant={isConnected ? 'default' : 'secondary'} 
+              <Badge
+                variant={isConnected ? 'default' : 'secondary'}
                 className={`${isConnected ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-rose-500 hover:bg-rose-600'} text-white border-0 px-4 py-2 shadow-lg`}
               >
                 <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-white' : 'bg-white/80'} mr-2 animate-pulse`}></span>
@@ -169,7 +245,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="absolute -inset-4 bg-gradient-to-r from-primary/20 to-transparent rounded-full blur-2xl -z-10"></div>
               </div>
-              
+
               <div className="w-full sm:w-auto sm:flex-1 max-w-md">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
@@ -179,12 +255,11 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   <div className="relative h-3 bg-secondary rounded-full overflow-hidden">
-                    <div 
-                      className={`absolute inset-y-0 left-0 bg-gradient-to-r ${
-                        qualityScore >= 80 ? 'from-emerald-500 to-emerald-400' : 
-                        qualityScore >= 60 ? 'from-amber-500 to-amber-400' : 
-                        'from-rose-500 to-rose-400'
-                      } rounded-full transition-all duration-1000 ease-out shadow-lg`}
+                    <div
+                      className={`absolute inset-y-0 left-0 bg-gradient-to-r ${qualityScore >= 80 ? 'from-emerald-500 to-emerald-400' :
+                        qualityScore >= 60 ? 'from-amber-500 to-amber-400' :
+                          'from-rose-500 to-rose-400'
+                        } rounded-full transition-all duration-1000 ease-out shadow-lg`}
                       style={{ width: `${qualityScore}%` }}
                     >
                       <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div>
@@ -215,16 +290,24 @@ export default function DashboardPage() {
               <FileCode className="w-8 h-8 text-muted-foreground/30" />
             </div>
           </CardHeader>
-          <CardContent className="p-8 sm:p-12">
-            <div className="text-center space-y-4">
-              <div className="w-20 h-20 mx-auto bg-gradient-to-br from-primary/20 to-primary/5 rounded-2xl flex items-center justify-center">
-                <Activity className="w-10 h-10 text-primary/50" />
+          <CardContent className="p-4 sm:p-6">
+            {recentReviews.length === 0 ? (
+              <div className="text-center space-y-4 py-8">
+                <div className="w-20 h-20 mx-auto bg-gradient-to-br from-primary/20 to-primary/5 rounded-2xl flex items-center justify-center">
+                  <Activity className="w-10 h-10 text-primary/50" />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-lg font-medium text-muted-foreground">No recent activity</p>
+                  <p className="text-sm text-muted-foreground/60">Your latest reviews will appear here</p>
+                </div>
               </div>
-              <div className="space-y-2">
-                <p className="text-lg font-medium text-muted-foreground">No recent activity</p>
-                <p className="text-sm text-muted-foreground/60">Your latest reviews will appear here</p>
+            ) : (
+              <div className="grid gap-4">
+                {recentReviews.map((review) => (
+                  <ReviewCard key={review._id} review={review} />
+                ))}
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -232,17 +315,17 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({ 
-  title, 
-  value, 
-  icon, 
+function StatCard({
+  title,
+  value,
+  icon,
   gradient,
   iconBg,
   iconColor
-}: { 
-  title: string; 
-  value: number; 
-  icon: React.ReactNode; 
+}: {
+  title: string;
+  value: number;
+  icon: React.ReactNode;
   gradient: string;
   iconBg: string;
   iconColor: string;

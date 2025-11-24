@@ -1,11 +1,13 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
+import { SUBSCRIPTION_LIMITS, PLANS } from '../config/constants';
 import Review from '../models/Review';
+import User from '../models/User';
+import Repository from '../models/Repository';
 import { getIO } from '../config/socket';
 import { analyzeMultipleFiles } from '../config/gemini';
-import { AuthRequest } from '../middlewares/auth';
 
 // Create review
-export const createReview = async (req: Request, res: Response) => {
+export const createReview = async (req: any, res: Response) => {
   try {
     const {
       repositoryId,
@@ -13,8 +15,63 @@ export const createReview = async (req: Request, res: Response) => {
       pullRequestTitle,
       pullRequestUrl,
       author,
-      reviewedBy,
     } = req.body;
+
+    const teamId = req.user.teamId;
+    const userId = req.user._id;
+
+    if (!teamId) {
+      return res.status(403).json({ message: 'User must be part of a team' });
+    }
+
+    // Verify repository belongs to user's team
+    const repository = await Repository.findOne({ _id: repositoryId, teamId });
+
+    if (!repository) {
+      return res.status(404).json({ message: 'Repository not found or access denied' });
+    }
+
+    // SUBSCRIPTION CHECK START
+    // Get the team owner or the user who pays for the subscription
+    // Assuming the user is the one paying for now, or we check the team's subscription if that existed
+    // For this app, it seems subscription is on the User model. 
+    // We should check the subscription of the user creating the review OR the team owner.
+    // Let's assume the current user's subscription matters for their actions, 
+    // OR if it's a team-based app, usually the team owner's subscription counts.
+    // Given the schema, User has subscription. Let's check the current user's subscription.
+
+    // OR if it's a team-based app, usually the team owner's subscription counts.
+    // Given the schema, User has subscription. Let's check the current user's subscription.
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const plan = user.subscription?.plan || 'free';
+    const status = user.subscription?.status || 'active';
+
+    // Check subscription limits
+    const currentPlan = user?.subscription?.plan || PLANS.FREE;
+    const limit = SUBSCRIPTION_LIMITS[currentPlan as keyof typeof SUBSCRIPTION_LIMITS].maxReviewsPerMonth;
+
+    // Count reviews in current month
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const reviewCount = await Review.countDocuments({
+      teamId: req.user.teamId,
+      createdAt: { $gte: startOfMonth }
+    });
+
+    if (reviewCount >= limit) {
+      return res.status(403).json({
+        message: `Monthly review limit reached. You can only perform ${limit} reviews per month on the ${currentPlan} plan.`
+      });
+    }
+    // SUBSCRIPTION CHECK END
 
     const newReview = new Review({
       repositoryId,
@@ -22,7 +79,8 @@ export const createReview = async (req: Request, res: Response) => {
       pullRequestTitle,
       pullRequestUrl,
       author,
-      reviewedBy,
+      reviewedBy: userId,
+      teamId,
       status: 'pending',
     });
 
@@ -31,9 +89,9 @@ export const createReview = async (req: Request, res: Response) => {
     // 🔥 FIX 1: Send WebSocket notification when review is created
     try {
       const io = getIO();
-      const userId = reviewedBy.toString(); // Ensure it's a string
-      
-      io.to(`user_${userId}`).emit('review-created', {
+      const userIdStr = newReview.reviewedBy.toString(); // Ensure it's a string
+
+      io.to(`user_${userIdStr}`).emit('review-created', {
         reviewId: newReview._id,
         pullRequestNumber: newReview.pullRequestNumber,
         pullRequestTitle: newReview.pullRequestTitle,
@@ -41,7 +99,7 @@ export const createReview = async (req: Request, res: Response) => {
         timestamp: new Date().toISOString(),
       });
 
-      console.log(`WebSocket: review-created sent to user_${userId}`);
+      console.log(`WebSocket: review-created sent to user_${userIdStr}`);
     } catch (socketError) {
       console.error('Error sending WebSocket notification:', socketError);
       // Don't fail the request if WebSocket fails
@@ -57,24 +115,16 @@ export const createReview = async (req: Request, res: Response) => {
   }
 };
 
-// Get all reviews
-// - Admins: See all reviews
-// - Developers: See reviews for PRs they created (author field matches their email)
-export const getAllReviews = async (req: AuthRequest, res: Response) => {
+// Get all reviews (TEAM-SCOPED - only returns team's reviews)
+export const getAllReviews = async (req: any, res: Response) => {
   try {
-    const userId = req.user._id;
-    const userRole = req.user.role;
-    const userEmail = req.user.email;
+    const teamId = req.user.teamId;
 
-    let query: any = {};
-
-    // Admins see all reviews
-    if (userRole !== 'admin') {
-      // Developers see reviews for PRs they created (where author matches their email)
-      query = { author: userEmail };
+    if (!teamId) {
+      return res.status(403).json({ message: 'User must be part of a team' });
     }
 
-    const reviews = await Review.find(query)
+    const reviews = await Review.find({ teamId })
       .populate('repositoryId', 'name fullName')
       .populate('reviewedBy', 'name email')
       .sort({ createdAt: -1 });
@@ -86,32 +136,23 @@ export const getAllReviews = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Get reviews by repository
-// - Admins: Can see all reviews for any repository
-// - Developers: Can see reviews for PRs they created
-export const getRepositoryReviews = async (req: AuthRequest, res: Response) => {
+// Get reviews by repository (TEAM-SCOPED with ownership verification)
+export const getRepositoryReviews = async (req: any, res: Response) => {
   try {
     const { repositoryId } = req.params;
-    const userRole = req.user.role;
-    const userEmail = req.user.email;
-    
-    // Verify repository exists
-    const Repository = require('../models/Repository').default;
-    const repository = await Repository.findById(repositoryId);
-    
+    const teamId = req.user.teamId;
+
+    if (!teamId) {
+      return res.status(403).json({ message: 'User must be part of a team' });
+    }
+
+    const repository = await Repository.findOne({ _id: repositoryId, teamId });
+
     if (!repository) {
       return res.status(404).json({ message: 'Repository not found' });
     }
-    
-    // Build query based on role
-    let query: any = { repositoryId };
-    
-    // Developers only see reviews for PRs they created
-    if (userRole !== 'admin') {
-      query.author = userEmail;
-    }
-    
-    const reviews = await Review.find(query)
+
+    const reviews = await Review.find({ repositoryId, teamId })
       .populate('reviewedBy', 'name email')
       .sort({ createdAt: -1 });
 
@@ -122,29 +163,22 @@ export const getRepositoryReviews = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Get single review
-// - Admins: Can see any review
-// - Developers: Can see reviews for PRs they created
-export const getReviewById = async (req: AuthRequest, res: Response) => {
+// Get single review (TEAM-SCOPED with ownership verification)
+export const getReviewById = async (req: any, res: Response) => {
   try {
     const { id } = req.params;
-    const userRole = req.user.role;
-    const userEmail = req.user.email;
-    
-    const review = await Review.findById(id)
+    const teamId = req.user.teamId;
+
+    if (!teamId) {
+      return res.status(403).json({ message: 'User must be part of a team' });
+    }
+
+    const review = await Review.findOne({ _id: id, teamId })
       .populate('repositoryId', 'name fullName owner')
       .populate('reviewedBy', 'name email');
 
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
-    }
-
-    // Check access: Admins can see all, developers can see their own PR reviews
-    if (userRole !== 'admin' && review.author !== userEmail) {
-      return res.status(403).json({ 
-        message: 'Access denied. You can only view reviews for your own PRs.',
-        code: 'ACCESS_DENIED'
-      });
     }
 
     res.status(200).json(review);
@@ -154,13 +188,24 @@ export const getReviewById = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Update review (for AI to add findings or admin updates)
-export const updateReview = async (req: AuthRequest, res: Response) => {
+// Update review (ADMIN ONLY, TEAM-SCOPED - CRITICAL FIX)
+export const updateReview = async (req: any, res: Response) => {
   try {
     const { id } = req.params;
     const { status, filesAnalyzed, issuesFound, findings, summary, qualityScore } = req.body;
+    const teamId = req.user?.teamId;
 
-    const review = await Review.findById(id);
+    // Authentication check - CRITICAL SECURITY FIX
+    if (!req.user || !teamId) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    // Authorization check - only admin can manually update reviews
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Only admins can update reviews' });
+    }
+
+    const review = await Review.findOne({ _id: id, teamId });
 
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
@@ -229,42 +274,18 @@ export const updateReview = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Get user's reviews
-// - Admins: Can view any user's reviews
-// - Developers: Can only view their own reviews
-export const getUserReviews = async (req: AuthRequest, res: Response) => {
+// Get user's reviews (TEAM-SCOPED)
+export const getUserReviews = async (req: any, res: Response) => {
   try {
     const { userId } = req.params;
-    const userRole = req.user.role;
-    const currentUserId = req.user._id.toString();
+    const teamId = req.user.teamId;
 
-    // Admins can view any user's reviews, others can only view their own
-    if (userRole !== 'admin' && userId !== currentUserId) {
-      return res.status(403).json({ 
-        message: 'Access denied. You can only view your own reviews.',
-        code: 'ACCESS_DENIED'
-      });
+    if (!teamId) {
+      return res.status(403).json({ message: 'User must be part of a team' });
     }
 
-    // Get user email for filtering by author
-    const User = require('../models/User').default;
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // For developers, show reviews for PRs they created
-    let query: any = {};
-    if (userRole !== 'admin') {
-      query.author = user.email;
-    } else {
-      // For admins viewing a user's reviews, show all reviews for PRs created by that user
-      query.author = user.email;
-    }
-
-    const reviews = await Review.find(query)
+    const reviews = await Review.find({ reviewedBy: userId, teamId })
       .populate('repositoryId', 'name fullName')
-      .populate('reviewedBy', 'name email')
       .sort({ createdAt: -1 });
 
     res.status(200).json(reviews);
@@ -274,36 +295,40 @@ export const getUserReviews = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Get review statistics
-// - Admins: See stats for all reviews
-// - Developers: See stats for their own PR reviews
-export const getReviewStats = async (req: AuthRequest, res: Response) => {
+// Get review statistics (TEAM-SCOPED - all team's stats)
+export const getReviewStats = async (req: any, res: Response) => {
   try {
-    const userRole = req.user.role;
-    const userEmail = req.user.email;
+    const teamId = req.user.teamId;
 
-    // Build query based on role
-    let query: any = {};
-    if (userRole !== 'admin') {
-      query.author = userEmail; // Developers see stats for their PRs
+    // If user has no team yet, return empty stats instead of error
+    if (!teamId) {
+      return res.status(200).json({
+        totalReviews: 0,
+        completedReviews: 0,
+        pendingReviews: 0,
+        inProgressReviews: 0,
+        avgQualityScore: 0,
+        totalIssues: 0,
+      });
     }
 
-    const totalReviews = await Review.countDocuments(query);
-    const completedReviews = await Review.countDocuments({ ...query, status: 'completed' });
-    const pendingReviews = await Review.countDocuments({ ...query, status: 'pending' });
-    const inProgressReviews = await Review.countDocuments({ ...query, status: 'in_progress' });
+    // Filter all queries by team
+    const totalReviews = await Review.countDocuments({ teamId });
+    const completedReviews = await Review.countDocuments({ teamId, status: 'completed' });
+    const pendingReviews = await Review.countDocuments({ teamId, status: 'pending' });
+    const inProgressReviews = await Review.countDocuments({ teamId, status: 'in_progress' });
 
-    // Get average quality score
-    const reviewsWithScores = await Review.find({ 
-      ...query,
-      qualityScore: { $exists: true } 
+    // Get average quality score for team's reviews
+    const reviewsWithScores = await Review.find({
+      teamId,
+      qualityScore: { $exists: true }
     });
     const avgQualityScore = reviewsWithScores.length > 0
       ? reviewsWithScores.reduce((sum, review) => sum + (review.qualityScore || 0), 0) / reviewsWithScores.length
       : 0;
 
-    // Get total issues found
-    const allReviews = await Review.find(query);
+    // Get total issues found in team's reviews
+    const allReviews = await Review.find({ teamId });
     const totalIssues = allReviews.reduce((sum, review) => sum + review.issuesFound, 0);
 
     res.status(200).json({
@@ -316,26 +341,6 @@ export const getReviewStats = async (req: AuthRequest, res: Response) => {
     });
   } catch (error) {
     console.error('Error fetching review stats:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// Delete review (Admin only)
-export const deleteReview = async (req: AuthRequest, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    const review = await Review.findByIdAndDelete(id);
-
-    if (!review) {
-      return res.status(404).json({ message: 'Review not found' });
-    }
-
-    res.status(200).json({ 
-      message: 'Review deleted successfully' 
-    });
-  } catch (error) {
-    console.error('Error deleting review:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -355,9 +360,9 @@ export const triggerAIReview = async (reviewId: string, files: { name: string; c
     // Send WebSocket notification
     const io = getIO();
     const userId = review.reviewedBy.toString();
-    
+
     console.log(`Sending in_progress notification to user_${userId}`);
-    
+
     io.to(`user_${userId}`).emit('review-updated', {
       reviewId: review._id,
       status: 'in_progress',
@@ -391,7 +396,7 @@ export const triggerAIReview = async (reviewId: string, files: { name: string; c
 
     // Send completion notification
     console.log(`Sending completed notification to user_${userId}`);
-    
+
     io.to(`user_${userId}`).emit('review-completed', {
       reviewId: review._id,
       pullRequestTitle: review.pullRequestTitle,
@@ -423,5 +428,29 @@ export const triggerAIReview = async (reviewId: string, files: { name: string; c
         timestamp: new Date().toISOString(),
       });
     }
+  }
+};
+
+// Delete review (ADMIN ONLY, TEAM-SCOPED)
+export const deleteReview = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const teamId = req.user.teamId;
+
+    if (!teamId) {
+      return res.status(403).json({ message: 'User must be part of a team' });
+    }
+
+    // Find and delete review (must belong to team)
+    const review = await Review.findOneAndDelete({ _id: id, teamId });
+
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+
+    res.status(200).json({ message: 'Review deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting review:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 };

@@ -12,12 +12,13 @@ import { apiLimiter } from './config/rateLimiter';
 import userRoutes from './routes/userRoutes';
 import repositoryRoutes from './routes/repositoryRoutes';
 import reviewRoutes from './routes/reviewRoutes';
-import authRoutes from './routes/authRoutes';
 import webhookRoutes from './routes/webhookRoutes';
 import clerkRoutes from './routes/clerkRoutes';
 import githubRoutes from './routes/githubRoutes';
 import stripeRoutes from './routes/stripeRoutes';
 import uploadRoutes from './routes/uploadRoutes';
+import teamRoutes from './routes/teamRoutes';
+import invitationRoutes from './routes/invitationRoutes';
 
 
 // CONNECT TO MONGODB
@@ -41,20 +42,6 @@ app.use(
     })
 );
 
-// Request logging
-if (process.env.NODE_ENV === 'development') {
-    app.use(morgan('dev'));
-} else {
-    app.use(morgan('combined'));
-}
-
-// Webhook routes (must be before express.json())
-app.use('/api/webhook', webhookRoutes);
-app.use('/api/stripe/webhook', stripeRoutes);
-
-// BODY PARSER
-app.use(express.json());
-
 // CORS CONFIGURATION
 const corsOptions = {
     origin: process.env.FRONTEND_URL || 'http://localhost:4000',
@@ -64,6 +51,13 @@ app.use(cors(corsOptions));
 
 // Rate limiting
 app.use('/api/', apiLimiter);
+
+// Middleware to parse JSON bodies
+app.use(express.json({
+    verify: (req: any, res, buf) => {
+        req.rawBody = buf
+    }
+}));
 
 // Health check endpoint
 app.get('/health', (req: express.Request, res: express.Response) => {
@@ -78,7 +72,6 @@ app.get('/health', (req: express.Request, res: express.Response) => {
 });
 
 // ROUTES
-app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/repositories', repositoryRoutes);
 app.use('/api/reviews', reviewRoutes);
@@ -86,8 +79,10 @@ app.use('/api/clerk', clerkRoutes);
 app.use('/api/github', githubRoutes);
 app.use('/api/stripe', stripeRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/team', teamRoutes);
+app.use('/api/invitations', invitationRoutes);
 
-app.get('/', (req: express.Request , res: express.Response) => {
+app.get('/', (req: express.Request, res: express.Response) => {
     res.json({ message: 'CodePro API is running! 🚀' });
 });
 

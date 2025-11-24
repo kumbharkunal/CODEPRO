@@ -4,8 +4,35 @@ export interface User {
   email: string;
   name: string;
   profileImage?: string;
-  role: 'admin' | 'developer' | 'viewer';
+  role: 'admin' | 'developer'; // Removed 'viewer'
+  teamId?: string;
   repositories: string[];
+  subscription?: {
+    plan: 'free' | 'pro' | 'enterprise';
+    status: 'active' | 'canceled' | 'past_due' | 'trialing';
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Team {
+  _id: string;
+  name: string;
+  adminId: string | User;
+  members: (string | User)[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Invitation {
+  _id: string;
+  teamId: string | Team;
+  invitedBy: string | User;
+  email: string;
+  role: 'developer';
+  token: string;
+  status: 'pending' | 'accepted' | 'expired';
+  expiresAt: string;
   createdAt: string;
   updatedAt: string;
 }

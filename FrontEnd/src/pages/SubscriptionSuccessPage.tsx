@@ -1,80 +1,23 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Sparkles, Rocket, FolderGit2, ArrowRight, PartyPopper } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useAppDispatch } from '@/store/hooks';
-import { setCredentials } from '@/store/slices/authSlice';
-import { authService } from '@/services/authService';
-import { useUser } from '@clerk/clerk-react';
-import toast from 'react-hot-toast';
 
 export default function SubscriptionSuccessPage() {
   const navigate = useNavigate();
-  const dispatch = useAppDispatch();
-  const { user: clerkUser, getToken } = useUser();
-  const [searchParams] = useSearchParams();
-  const sessionId = searchParams.get('session_id');
   const [showConfetti, setShowConfetti] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    if (!sessionId) {
-      navigate('/pricing');
-      return;
-    }
-    
-    // Refresh user data after successful subscription
-    const refreshUserData = async () => {
-      if (!clerkUser) return;
-      
-      setRefreshing(true);
-      try {
-        const token = await getToken({ skipCache: true });
-        if (!token) return;
-
-        // Sync user data from backend (includes latest subscription info)
-        const response = await authService.syncClerkUser({
-          clerkId: clerkUser.id,
-          email: clerkUser.primaryEmailAddress?.emailAddress || '',
-          name: clerkUser.fullName || clerkUser.username || 'User',
-          profileImage: clerkUser.imageUrl,
-        }, token);
-
-        // Update Redux store with latest user data (including subscription)
-        dispatch(setCredentials({
-          user: response.user,
-          token: token,
-        }));
-
-        console.log('✅ User data refreshed after subscription:', response.user);
-      } catch (error) {
-        console.error('Error refreshing user data:', error);
-        toast.error('Failed to refresh subscription status. Please refresh the page.');
-      } finally {
-        setRefreshing(false);
-      }
-    };
-
-    // Wait a moment for webhook to process, then refresh
-    const refreshTimer = setTimeout(() => {
-      refreshUserData();
-    }, 2000); // 2 second delay to allow webhook to complete
-    
-    // Hide confetti after animation
-    const confettiTimer = setTimeout(() => setShowConfetti(false), 5000);
-    
-    return () => {
-      clearTimeout(refreshTimer);
-      clearTimeout(confettiTimer);
-    };
-  }, [sessionId, navigate, clerkUser, getToken, dispatch]);
+    const timer = setTimeout(() => setShowConfetti(false), 5000);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Animated background */}
-      <div className="absolute inset-0 -z-10">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Background Blobs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-10 w-96 h-96 bg-green-500/20 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-blob"></div>
         <div className="absolute top-40 right-10 w-96 h-96 bg-emerald-300/20 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-blob animation-delay-2000"></div>
         <div className="absolute bottom-20 left-1/2 w-96 h-96 bg-teal-300/20 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-blob animation-delay-4000"></div>
@@ -112,19 +55,19 @@ export default function SubscriptionSuccessPage() {
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-2xl"
+        className="w-full max-w-2xl relative z-10"
       >
-        <Card className="border-2 border-green-500/20 shadow-2xl">
+        <Card className="border-2 border-green-500/20 shadow-2xl bg-card/50 backdrop-blur-sm">
           <CardContent className="pt-12 pb-8 px-6 md:px-12 text-center space-y-8">
             {/* Success Icon */}
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
-              transition={{ 
+              transition={{
                 type: 'spring',
                 stiffness: 200,
                 damping: 10,
-                delay: 0.2 
+                delay: 0.2
               }}
               className="relative inline-block"
             >
@@ -177,7 +120,7 @@ export default function SubscriptionSuccessPage() {
                 <Sparkles className="w-4 h-4" />
                 <span className="text-sm font-medium">All Pro features unlocked</span>
               </div>
-              
+
               <div className="grid sm:grid-cols-3 gap-4 pt-4">
                 <div className="p-4 rounded-lg bg-gradient-to-br from-primary/5 to-blue-500/5 border border-primary/10">
                   <div className="inline-flex p-2 rounded-lg bg-primary/10 text-primary mb-2">
@@ -210,17 +153,17 @@ export default function SubscriptionSuccessPage() {
               transition={{ delay: 0.8 }}
               className="flex flex-col sm:flex-row gap-4 pt-4"
             >
-              <Button 
-                onClick={() => navigate('/dashboard')} 
+              <Button
+                onClick={() => navigate('/dashboard')}
                 size="lg"
                 className="flex-1 rounded-full bg-gradient-to-r from-primary to-blue-600 hover:opacity-90 shadow-lg hover:shadow-xl transition-all duration-300 group"
               >
                 Go to Dashboard
                 <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
               </Button>
-              <Button 
-                onClick={() => navigate('/repositories')} 
-                variant="outline" 
+              <Button
+                onClick={() => navigate('/repositories')}
+                variant="outline"
                 size="lg"
                 className="flex-1 rounded-full group"
               >

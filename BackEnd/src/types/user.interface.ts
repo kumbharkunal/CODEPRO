@@ -1,11 +1,12 @@
-import { Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
 export interface IUser extends Document {
   clerkId: string;
   email: string;
   name: string;
   profileImage?: string;
-  role: 'admin' | 'developer' | 'viewer';
+  role: 'admin' | 'developer';
+  teamId?: Types.ObjectId;
   repositories: string[];
   subscription: {
     plan: 'free' | 'pro' | 'enterprise';

@@ -23,8 +23,13 @@ const UserSchema: Schema = new Schema(
         },
         role: {
             type: String,
-            enum: ['admin', 'developer', 'viewer'],
-            default: 'viewer',
+            enum: ['admin', 'developer'],
+            default: 'admin',
+        },
+        teamId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Team',
+            required: false, // Will be set after team creation
         },
         repositories: {
             type: [String],
